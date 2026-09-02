@@ -91,14 +91,14 @@
     <div class="lg:col-span-1 space-y-4">
       <div class="panel p-4 rounded">
         <h3 class="text-xs text-gray-500 uppercase mb-2">Account Balance</h3>
-        <p class="text-3xl font-bold neon-text" id="balance">$5,000.00</p>
-        <p class="text-xs text-gray-500 mt-1">Starting: $<span id="starting-balance">5,000.00</span></p>
+        <p class="text-3xl font-bold neon-text" id="balance">$100.00</p>
+        <p class="text-xs text-gray-500 mt-1">Starting: $<span id="starting-balance">100.00</span></p>
         <p class="text-sm mt-2" id="pnl-display">P&amp;L: <span class="text-gray-400">$0.00 (0.00%)</span></p>
       </div>
 
       <div class="panel p-4 rounded">
         <h3 class="text-xs text-gray-500 uppercase mb-2">Live Equity</h3>
-        <p class="text-2xl font-bold neon-text" id="equity">$5,000.00</p>
+        <p class="text-2xl font-bold neon-text" id="equity">$100.00</p>
         <p class="text-xs text-gray-500 mt-1">Realized from <span id="trade-count">0</span> trades</p>
       </div>
 
@@ -148,6 +148,9 @@
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-lg neon-text">Live Execution Feed</h3>
           <button id="reset-btn" class="neon-btn danger text-xs">Clear</button>
+        </div>
+        <div id="dot-timeline" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 4px;border-bottom:1px solid #1a3024;margin-bottom:10px;min-height:28px;background:#0a120e;">
+          <span style="color:#666;font-size:10px;">Trade Timeline:</span>
         </div>
         <div id="trade-feed" class="space-y-2 max-h-[600px] overflow-y-auto">
           <p class="text-xs text-gray-500">No trades yet. Initialize the engine to start.</p>
@@ -262,10 +265,21 @@
       toggle.textContent = state.is_running ? '■ Stop Engine' : '▶ Initialize Engine';
       toggle.className = state.is_running ? 'neon-btn danger' : 'neon-btn';
 
-      // Render trade feed - simple flat structure to avoid Tailwind flexbox collapse
-      const feed = document.getElementById('trade-feed');
-      const trades = state.trade_history || [];
-      document.getElementById('trade-count').textContent = trades.length;
+        // Render trade feed - simple flat structure to avoid Tailwind flexbox collapse
+        const feed = document.getElementById('trade-feed');
+        const trades = state.trade_history || [];
+        document.getElementById('trade-count').textContent = trades.length;
+        // Render the dot timeline - completely independent DOM tree
+        const timeline = document.getElementById('dot-timeline');
+        if (timeline && trades.length > 0) {
+          timeline.innerHTML = '<span style="color:#666;font-size:10px;margin-right:4px;">Timeline:</span>' +
+            trades.slice().reverse().slice(0, 30).map((t) => {
+              const c = assetColors[t.asset] || '#75E063';
+              return '<span title="' + (t.asset || '') + ' ' + (t.signal || '') + ' @ ' + new Date(t.time).toLocaleTimeString() + '" style="display:inline-block;width:14px;height:14px;border-radius:50%;background:' + c + ';box-shadow:0 0 8px ' + c + ';animation:dotPulse 1.5s ease-in-out infinite;flex-shrink:0;"></span>';
+            }).join('');
+        } else if (timeline) {
+          timeline.innerHTML = '<span style="color:#666;font-size:10px;">Trade Timeline: (waiting for trades)</span>';
+        }
       if (trades.length > 0) {
         const now = Date.now();
         feed.innerHTML = trades.slice().reverse().map((t, idx) => {

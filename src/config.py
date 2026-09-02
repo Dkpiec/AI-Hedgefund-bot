@@ -40,7 +40,7 @@ MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")               # Your MT5 password
 MT5_SERVER = os.getenv("MT5_SERVER", "MetaQuotes-Demo")    # e.g. MetaQuotes-Demo
 
 # Starting demo account balance (used when MT5 is not connected / paper mode)
-STARTING_BALANCE = float(os.getenv("STARTING_BALANCE", "5000"))
+STARTING_BALANCE = float(os.getenv("STARTING_BALANCE", "100"))
 
 # ============================================================================
 # TRADING CONFIGURATION

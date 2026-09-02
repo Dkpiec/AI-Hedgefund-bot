@@ -23,7 +23,7 @@ services:
       - key: MT5_SERVER
         value: MetaQuotes-Demo
       - key: STARTING_BALANCE
-        value: "5000"
+        value: "100"
       - key: PAPER_MODE
         value: "true"
       - key: DASHBOARD_HOST
