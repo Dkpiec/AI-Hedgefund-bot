@@ -261,7 +261,7 @@
       toggle.textContent = state.is_running ? '■ Stop Engine' : '▶ Initialize Engine';
       toggle.className = state.is_running ? 'neon-btn danger' : 'neon-btn';
 
-      // Render trade feed
+      // Render trade feed - simple flat structure to avoid Tailwind flexbox collapse
       const feed = document.getElementById('trade-feed');
       const trades = state.trade_history || [];
       document.getElementById('trade-count').textContent = trades.length;
@@ -274,27 +274,29 @@
           const assetColor = assetColors[t.asset] || '#75E063';
           const tradeTime = new Date(t.time).getTime();
           const ageMs = now - tradeTime;
-          // Fresh = under 1 min, recent = under 5 min, stale otherwise
           const dotClass = ageMs < 60000 ? 'fresh' : ageMs < 300000 ? 'recent' : 'stale';
           const isLatest = idx === 0;
           const outcomeTag = t.outcome === 'TP_HIT' ? '<span class="trade-tag" style="background:#75E063;color:#000">TP</span>'
                           : t.outcome === 'SL_HIT' ? '<span class="trade-tag" style="background:#FF6B6B;color:#000">SL</span>'
                           : '<span class="trade-tag" style="background:#444;color:#888">—</span>';
-          const isLast = idx === trades.length - 1;
           return `
           <div class="trade-row panel p-2 rounded text-xs ${isLatest ? 'latest' : ''}">
             <div class="trade-connector"></div>
-            <div class="flex justify-between items-center">
-              <span class="font-bold" style="color: ${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}">
-                <span class="trade-marker ${dotClass}" style="background:${assetColor};color:${assetColor}"></span><span class="signal-dot" style="background:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}"></span>${t.signal} ${t.asset}${outcomeTag}
-              </span>
-              <span class="text-gray-500">${new Date(t.time).toLocaleTimeString()}</span>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <div>
+                <span class="trade-marker ${dotClass}" style="background:${assetColor};color:${assetColor}"></span>
+                <span class="signal-dot" style="background:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}"></span>
+                <span style="color:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'};font-weight:bold;">${t.signal} ${t.asset}</span>
+                ${outcomeTag}
+              </div>
+              <span style="color:#666;font-size:10px;">${new Date(t.time).toLocaleTimeString()}</span>
             </div>
-            <div class="text-gray-300 mt-1">${t.logic || ''}</div>
-            <div class="text-gray-500 mt-1">
-              <span style="color:${assetColor}">●</span> Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%
+            <div style="color:#9ca3af;margin:4px 0;">${t.logic || ''}</div>
+            <div style="color:#666;font-size:10px;">
+              <span style="color:${assetColor}">●</span>
+              Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%
             </div>
-            <div class="mt-1 font-bold" style="color: ${tColor}">
+            <div style="color:${tColor};font-weight:bold;margin-top:4px;">
               ${t.outcome || ''} | P&L: ${tSign}$${tPnl.toFixed(2)} | Balance: $${(t.balance_after || 0).toFixed(2)}
             </div>
           </div>

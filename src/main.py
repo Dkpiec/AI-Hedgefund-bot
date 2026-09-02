@@ -69,6 +69,12 @@ async def dashboard(request: Request):
     return templates.TemplateResponse(request, "index.html", {"symbols": SYMBOLS})
 
 
+@app.get("/test-dots", response_class=HTMLResponse)
+async def test_dots():
+    """Standalone test page to verify trade feed dot rendering."""
+    return HTMLResponse(content=open(BASE_DIR / "dashboard" / "templates" / "test_dots.html").read())
+
+
 @app.post("/api/control")
 async def control(request: Request):
     """Start/stop the bot and set interval."""
