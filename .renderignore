@@ -1,0 +1,48 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Env
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Data
+data/cache/
+data/raw/
+*.db
+*.sqlite
+
+# Local testing
+.local/
+render/
+.streamlit/secrets.toml
