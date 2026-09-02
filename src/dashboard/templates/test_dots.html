@@ -3,90 +3,60 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI Hedge Fund Bot - Trade Feed Test</title>
+<title>AI Hedge Fund Bot - Dots Only</title>
 <style>
-  body { background: #0B120E; color: #c8e6c9; font-family: monospace; padding: 20px; }
-  .trade-row {
-    background: #0d1612;
+  body { background: #0B120E; color: #c8e6c9; font-family: monospace; padding: 20px; margin: 0; }
+  #timeline {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 12px;
+    background: #0a120e;
     border: 1px solid #4a9a3d;
     border-radius: 6px;
-    padding: 10px 10px 10px 32px;
-    margin: 8px 0;
-    position: relative;
+    min-height: 40px;
   }
-  .trade-marker {
+  .dot {
     display: inline-block;
-    width: 12px;
-    height: 12px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    margin-right: 8px;
-    vertical-align: middle;
-    box-shadow: 0 0 8px currentColor;
+    flex-shrink: 0;
+    animation: dotPulse 1.5s ease-in-out infinite;
   }
-  .trade-marker.fresh { animation: dotPulse 1.2s ease-in-out infinite; }
-  .trade-marker.recent { animation: dotPulse 2.5s ease-in-out infinite; }
-  .trade-marker.stale { opacity: 0.5; }
+  .dot.fresh { animation-duration: 1.0s; }
+  .dot.stale { opacity: 0.5; }
   @keyframes dotPulse {
     0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.5); }
+    50% { transform: scale(1.6); }
   }
-  .trade-connector {
-    position: absolute;
-    left: 18px;
-    top: 30px;
-    bottom: -10px;
-    width: 2px;
-    background: linear-gradient(to bottom, #4a9a3d 0%, transparent 100%);
-    opacity: 0.4;
-  }
-  .trade-row:last-child .trade-connector { display: none; }
-  .trade-row.latest { border-color: #75E063; box-shadow: 0 0 12px #75E063; }
-  .signal-dot {
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    margin-right: 4px;
-  }
-  .trade-tag {
-    display: inline-block;
-    padding: 1px 6px;
-    border-radius: 3px;
-    font-size: 9px;
-    font-weight: bold;
-    margin-left: 6px;
-  }
-  .h1 { color: #75E063; }
+  .label { color: #75E063; font-size: 12px; margin-bottom: 8px; }
 </style>
 </head>
 <body>
-  <h1 class="h1">🟢 Test Trade Feed (Standalone)</h1>
-  <p>If you can see 3 colored dots below, the CSS works correctly.</p>
-  <div id="test-feed"></div>
+  <div class="label">Trade Timeline (dots only):</div>
+  <div id="timeline"></div>
 
 <script>
   const assetColors = { 'EURUSDm': '#75E063', 'GBPUSDm': '#FFD700', 'BTCUSDm': '#FF6B6B', 'XAUUSDm': '#FFA500', 'USDJPYm': '#00BFFF' };
   const sample = [
-    { asset: 'BTCUSDm', signal: 'SELL', outcome: 'TP_HIT', pnl: 2.0, balance_after: 5002, time: new Date().toISOString(), logic: 'Quant Rule: Inside-bar' },
-    { asset: 'EURUSDm', signal: 'BUY', outcome: 'SL_HIT', pnl: -1.0, balance_after: 5001, time: new Date(Date.now()-300000).toISOString(), logic: 'Quant Momentum' },
-    { asset: 'XAUUSDm', signal: 'BUY', outcome: 'TP_HIT', pnl: 3.5, balance_after: 5004, time: new Date(Date.now()-600000).toISOString(), logic: 'Quant Trend' },
+    { asset: 'BTCUSDm', time: new Date().toISOString() },
+    { asset: 'EURUSDm', time: new Date(Date.now()-30000).toISOString() },
+    { asset: 'XAUUSDm', time: new Date(Date.now()-60000).toISOString() },
+    { asset: 'GBPUSDm', time: new Date(Date.now()-90000).toISOString() },
+    { asset: 'USDJPYm', time: new Date(Date.now()-120000).toISOString() },
+    { asset: 'BTCUSDm', time: new Date(Date.now()-150000).toISOString() },
+    { asset: 'EURUSDm', time: new Date(Date.now()-180000).toISOString() },
+    { asset: 'XAUUSDm', time: new Date(Date.now()-210000).toISOString() },
+    { asset: 'BTCUSDm', time: new Date(Date.now()-240000).toISOString() },
+    { asset: 'GBPUSDm', time: new Date(Date.now()-270000).toISOString() },
   ];
-  const feed = document.getElementById('test-feed');
-  feed.innerHTML = sample.map((t, i) => {
-    const color = assetColors[t.asset] || '#75E063';
-    const tPnl = t.pnl;
-    const tColor = tPnl > 0 ? '#75E063' : '#FF6B6B';
-    const dotClass = i === 0 ? 'fresh' : i === 1 ? 'recent' : 'stale';
-    const outcomeTag = t.outcome === 'TP_HIT' ? '<span class="trade-tag" style="background:#75E063;color:#000">TP</span>' : '<span class="trade-tag" style="background:#FF6B6B;color:#000">SL</span>';
-    return `
-      <div class="trade-row ${i === 0 ? 'latest' : ''}">
-        <div class="trade-connector"></div>
-        <span class="trade-marker ${dotClass}" style="background:${color};color:${color}"></span>
-        <span class="signal-dot" style="background:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}"></span>
-        <strong style="color:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}">${t.signal} ${t.asset}</strong>${outcomeTag}
-        <div style="margin-top:6px;font-size:12px;color:#888">${t.logic} • P&L: $${tPnl.toFixed(2)} • Balance: $${t.balance_after.toFixed(2)}</div>
-      </div>
-    `;
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = sample.map((t, i) => {
+    const c = assetColors[t.asset] || '#75E063';
+    const cls = i === 0 ? 'fresh' : (i > 6 ? 'stale' : '');
+    return '<span class="dot ' + cls + '" title="' + t.asset + ' @ ' + new Date(t.time).toLocaleTimeString() + '" style="background:' + c + ';box-shadow:0 0 8px ' + c + ';"></span>';
   }).join('');
 </script>
 </body>
