@@ -145,7 +145,10 @@ def get_ai_decision(market_data: Dict, symbol: str, model_override: str = None) 
     system_prompt = (
         f"You are an elite quantitative crypto trader analyzing {symbol} on Binance Spot. "
         f"Multi-timeframe analysis. Look for inside-bar breakouts, momentum shifts, "
-        f"and volume confirmation. Return EXACTLY this JSON:\n"
+        f"and volume confirmation. "
+        f"IMPORTANT: The bot enforces one open position per symbol. "
+        f"Do not recommend a new entry if a position is already open. "
+        f"Return EXACTLY this JSON:\n"
         f'{{"signal": "BUY", "confidence_score": 85, "logic": "2 sentences", "timeframe": "5m"}}'
     )
 

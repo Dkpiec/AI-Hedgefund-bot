@@ -103,6 +103,12 @@ RISK_PER_TRADE = 0.05  # 5% of capital per trade (user-set 2026-09-02)
 ORDER_TIMEOUT_SECONDS = 300   # 5 min — cancel unfilled limit orders
 STRICT_LIMIT_ORDERS = True    # market orders disabled; only limit orders
 
+# Position management
+# Only one open position per symbol at a time.
+# Bot will not place a new order for a symbol that has an unfilled/filled
+# order tracked in OPEN_ORDERS. User-set 2026-09-02.
+ONE_POSITION_PER_SYMBOL = True
+
 # Scanner cadence (seconds between full multi-timeframe scans)
 DEFAULT_INTERVAL = 300        # 5 min (matches fastest timeframe)
 

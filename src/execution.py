@@ -222,3 +222,70 @@ def get_open_orders() -> list:
         {"order_id": oid, **o, "age_seconds": time.time() - o.get("placed_at", 0)}
         for oid, o in OPEN_ORDERS.items()
     ]
+
+
+def has_open_position(symbol: str) -> bool:
+    """
+    Return True if there is any tracked order/position for this symbol.
+    Used by the trading loop to enforce: one open position per symbol at a time.
+    """
+    for o in OPEN_ORDERS.values():
+        if o.get("symbol") == symbol:
+            return True
+    return False
+
+
+def get_open_position(symbol: str) -> list:
+    """Return all tracked orders for the given symbol."""
+    return [
+        {"order_id": oid, **o}
+        for oid, o in OPEN_ORDERS.items()
+        if o.get("symbol") == symbol
+    ]
+
+
+def sync_open_orders() -> dict:
+    """
+    Poll Binance for the status of every tracked order.
+    - FILLED orders are removed from OPEN_ORDERS (position is closed).
+    - CANCELED / EXPIRED orders are removed.
+    - Still NEW / PARTIALLY_FILLED stay tracked.
+
+    Returns a small stats dict {filled: N, removed: N, kept: N}.
+    """
+    client = _get_client()
+    if client is None:
+        return {"filled": 0, "removed": 0, "kept": len(OPEN_ORDERS)}
+
+    filled = 0
+    removed = 0
+    kept = 0
+    to_remove = []
+
+    for oid, o in list(OPEN_ORDERS.items()):
+        symbol = o.get("symbol")
+        try:
+            order = client.get_order(symbol=symbol, orderId=oid)
+            status = order.get("status", "")
+            if status == "FILLED":
+                # Order filled — position is now open in the wallet.
+                # The next position check will see real Binance balance, not OPEN_ORDERS.
+                to_remove.append(oid)
+                filled += 1
+            elif status in ("CANCELED", "REJECTED", "EXPIRED"):
+                to_remove.append(oid)
+                removed += 1
+            else:
+                # NEW / PARTIALLY_FILLED — still working
+                kept += 1
+        except Exception as e:
+            # Order may have been deleted server-side (e.g., after testnet reset).
+            # Treat as removed to avoid blocking the symbol forever.
+            print(f"[EXEC] sync error for {oid}: {e}")
+            to_remove.append(oid)
+            removed += 1
+
+    for oid in to_remove:
+        OPEN_ORDERS.pop(oid, None)
+
+    return {"filled": filled, "removed": removed, "kept": kept}
