@@ -26,31 +26,33 @@
     background: rgba(11, 18, 14, 0.85); border: 1px solid var(--lime-dim);
     backdrop-filter: blur(6px);
   }
-  .trade-row { animation: slideIn 0.3s ease; position: relative; padding-left: 16px; }
+  .trade-row { animation: slideIn 0.3s ease; }
   @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
   .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #666; }
   .status-dot.running { background: var(--lime); box-shadow: 0 0 8px var(--lime); animation: pulse 1s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
   /* Trade feed dots */
   .trade-marker {
-    position: absolute; left: 4px; top: 12px; width: 8px; height: 8px;
-    border-radius: 50%; box-shadow: 0 0 6px currentColor;
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle;
+    box-shadow: 0 0 6px currentColor; flex-shrink: 0;
   }
   .trade-marker.fresh { animation: pulseDot 1.2s ease-in-out infinite; }
   .trade-marker.recent { animation: pulseDot 2.5s ease-in-out infinite; }
   .trade-marker.stale { opacity: 0.5; }
   @keyframes pulseDot {
     0%, 100% { transform: scale(1); box-shadow: 0 0 4px currentColor; }
-    50% { transform: scale(1.4); box-shadow: 0 0 10px currentColor; }
+    50% { transform: scale(1.4); box-shadow: 0 0 12px currentColor; }
   }
   .trade-connector {
-    position: absolute; left: 8px; top: 22px; bottom: -10px; width: 1px;
+    position: absolute; left: 12px; top: 28px; bottom: -6px; width: 1px;
     background: linear-gradient(to bottom, var(--lime-dim) 0%, transparent 100%);
-    opacity: 0.3;
+    opacity: 0.4; z-index: 0;
   }
   .trade-row:last-child .trade-connector { display: none; }
   .trade-row.latest { border-color: var(--lime); box-shadow: 0 0 8px var(--lime-dim); }
+  .trade-row { position: relative; padding-left: 28px; }
+  .trade-row > * { position: relative; z-index: 1; }
   .trade-tag {
     display: inline-block; padding: 1px 6px; border-radius: 3px;
     font-size: 9px; font-weight: bold; margin-left: 6px;
@@ -281,11 +283,10 @@
           const isLast = idx === trades.length - 1;
           return `
           <div class="trade-row panel p-2 rounded text-xs ${isLatest ? 'latest' : ''}">
-            <span class="trade-marker ${dotClass}" style="background:${assetColor};color:${assetColor}"></span>
             <div class="trade-connector"></div>
             <div class="flex justify-between items-center">
               <span class="font-bold" style="color: ${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}">
-                <span class="signal-dot" style="background:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}"></span>${t.signal} ${t.asset}${outcomeTag}
+                <span class="trade-marker ${dotClass}" style="background:${assetColor};color:${assetColor}"></span><span class="signal-dot" style="background:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}"></span>${t.signal} ${t.asset}${outcomeTag}
               </span>
               <span class="text-gray-500">${new Date(t.time).toLocaleTimeString()}</span>
             </div>
