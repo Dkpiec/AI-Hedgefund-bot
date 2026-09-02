@@ -31,6 +31,7 @@
   .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #666; }
   .status-dot.running { background: var(--lime); box-shadow: 0 0 8px var(--lime); animation: pulse 1s infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes dotPulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 6px currentColor; } 50% { transform: scale(1.5); box-shadow: 0 0 14px currentColor; } }
   /* Trade feed dots */
   .trade-marker {
     display: inline-block; width: 10px; height: 10px;
@@ -274,20 +275,36 @@
           const assetColor = assetColors[t.asset] || '#75E063';
           const tradeTime = new Date(t.time).getTime();
           const ageMs = now - tradeTime;
-          const dotClass = ageMs < 60000 ? 'fresh' : ageMs < 300000 ? 'recent' : 'stale';
+          // Inline animation strings - no class dependency
+          let dotAnim = '';
+          if (ageMs < 60000) {
+            dotAnim = 'animation: dotPulse 1.2s ease-in-out infinite; box-shadow: 0 0 12px ' + assetColor + ';';
+          } else if (ageMs < 300000) {
+            dotAnim = 'animation: dotPulse 2.5s ease-in-out infinite; box-shadow: 0 0 8px ' + assetColor + ';';
+          } else {
+            dotAnim = 'box-shadow: 0 0 4px ' + assetColor + '; opacity: 0.7;';
+          }
           const isLatest = idx === 0;
-          const outcomeTag = t.outcome === 'TP_HIT' ? '<span class="trade-tag" style="background:#75E063;color:#000">TP</span>'
-                          : t.outcome === 'SL_HIT' ? '<span class="trade-tag" style="background:#FF6B6B;color:#000">SL</span>'
-                          : '<span class="trade-tag" style="background:#444;color:#888">—</span>';
+          const signalColor = t.signal === 'BUY' ? '#75E063' : '#FF6B6B';
+          const outcomeBg = t.outcome === 'TP_HIT' ? '#75E063' : t.outcome === 'SL_HIT' ? '#FF6B6B' : '#444';
+          const outcomeFg = (t.outcome === 'TP_HIT' || t.outcome === 'SL_HIT') ? '#000' : '#888';
+          const outcomeText = t.outcome === 'TP_HIT' ? 'TP' : t.outcome === 'SL_HIT' ? 'SL' : '—';
+          // Full inline styles - nothing can be hidden
+          const dotStyle = 'display:inline-block;width:12px;height:12px;border-radius:50%;background:' + assetColor + ';margin-right:8px;vertical-align:middle;' + dotAnim;
+          const sigDotStyle = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:' + signalColor + ';margin-right:6px;vertical-align:middle;box-shadow:0 0 6px ' + signalColor + ';';
+          const tagStyle = 'display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:bold;margin-left:6px;background:' + outcomeBg + ';color:' + outcomeFg + ';';
+          const rowStyle = 'background:rgba(11,18,14,0.85);border:1px solid ' + (isLatest ? '#75E063' : '#4a9a3d') + ';border-radius:6px;padding:8px 8px 8px 28px;margin:6px 0;position:relative;' + (isLatest ? 'box-shadow:0 0 14px #75E063;' : '');
+          const connectorStyle = 'position:absolute;left:16px;top:24px;bottom:-8px;width:2px;background:linear-gradient(to bottom,#4a9a3d 0%,transparent 100%);opacity:0.4;';
+          const connHtml = idx < trades.length - 1 ? '<div style="' + connectorStyle + '"></div>' : '';
           return `
-          <div class="trade-row panel p-2 rounded text-xs ${isLatest ? 'latest' : ''}">
-            <div class="trade-connector"></div>
+          <div style="${rowStyle}">
+            ${connHtml}
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
               <div>
-                <span class="trade-marker ${dotClass}" style="background:${assetColor};color:${assetColor}"></span>
-                <span class="signal-dot" style="background:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}"></span>
-                <span style="color:${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'};font-weight:bold;">${t.signal} ${t.asset}</span>
-                ${outcomeTag}
+                <span style="${dotStyle}"></span>
+                <span style="${sigDotStyle}"></span>
+                <span style="color:${signalColor};font-weight:bold;">${t.signal} ${t.asset}</span>
+                <span style="${tagStyle}">${outcomeText}</span>
               </div>
               <span style="color:#666;font-size:10px;">${new Date(t.time).toLocaleTimeString()}</span>
             </div>

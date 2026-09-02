@@ -23,10 +23,10 @@
     vertical-align: middle;
     box-shadow: 0 0 8px currentColor;
   }
-  .trade-marker.fresh { animation: pulseDot 1.2s ease-in-out infinite; }
-  .trade-marker.recent { animation: pulseDot 2.5s ease-in-out infinite; }
+  .trade-marker.fresh { animation: dotPulse 1.2s ease-in-out infinite; }
+  .trade-marker.recent { animation: dotPulse 2.5s ease-in-out infinite; }
   .trade-marker.stale { opacity: 0.5; }
-  @keyframes pulseDot {
+  @keyframes dotPulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.5); }
   }
