@@ -5,16 +5,27 @@ Central configuration for the autonomous trading bot.
 Supports OpenRouter (multi-model) or direct DeepSeek/OpenAI/Anthropic APIs.
 """
 import os
+from pathlib import Path
+
+# Auto-load .env from project root (one level up from src/)
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except ImportError:
+    pass  # python-dotenv not installed; rely on real env vars
 
 # ============================================================================
 # LLM API CONFIGURATION
 # ============================================================================
 # OpenRouter (supports free models + multiple providers)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "your-openrouter-api-key-here")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
-# Default free model on OpenRouter (override via env)
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat-v3.1:free")
+# Default model: auto-resolve to the current OpenRouter free model at runtime
+# if "openrouter/free" is set, the AI brain picks the first free model from /models
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 # Legacy direct API keys (optional fallback)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")

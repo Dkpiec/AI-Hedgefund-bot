@@ -16,6 +16,30 @@ from config import (
 )
 
 
+def _resolve_free_model() -> str:
+    """If OPENROUTER_MODEL is 'openrouter/free', fetch the first free model from /models."""
+    if OPENROUTER_MODEL != "openrouter/free":
+        return OPENROUTER_MODEL
+    try:
+        resp = requests.get(
+            f"{OPENROUTER_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return "deepseek/deepseek-chat-v3.1:free"  # safe fallback
+        models = resp.json().get("data", [])
+        for m in models:
+            mid = m.get("id", "")
+            pricing = m.get("pricing", {})
+            # Free if both prompt and completion are "0"
+            if pricing.get("prompt") == "0" and pricing.get("completion") == "0":
+                return mid
+        return "deepseek/deepseek-chat-v3.1:free"
+    except Exception:
+        return "deepseek/deepseek-chat-v3.1:free"
+
+
 def get_ai_decision(market_data: dict, symbol: str) -> dict:
     """
     Send Daily + H1 CSV to the LLM and get a structured trading decision.
@@ -48,7 +72,7 @@ def get_ai_decision(market_data: dict, symbol: str) -> dict:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": OPENROUTER_MODEL,
+        "model": _resolve_free_model(),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

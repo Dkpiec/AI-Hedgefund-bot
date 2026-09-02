@@ -1,0 +1,59 @@
+name: CI — Lint & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL:   ${{ secrets.OPENROUTER_MODEL || 'openrouter/free' }}
+      MT5_ACCOUNT:        ${{ secrets.MT5_ACCOUNT || '0' }}
+      MT5_PASSWORD:       ${{ secrets.MT5_PASSWORD || '' }}
+      MT5_SERVER:         ${{ secrets.MT5_SERVER || 'MetaQuotes-Demo' }}
+      PAPER_MODE:         "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies (no MT5 on Linux CI)
+        run: |
+          pip install fastapi uvicorn jinja2 python-multipart \
+                      requests pydantic python-dotenv httpx
+
+      - name: Import check — config + ai_brain
+        run: |
+          cd src
+          python -c "from config import SYMBOLS, OPENROUTER_MODEL, PAPER_MODE; print('config OK', OPENROUTER_MODEL)"
+          python -c "from ai_brain import _resolve_free_model; print('ai_brain OK')"
+          python -c "from main import app, bot_state; print('main OK — model:', bot_state['current_model'])"
+
+      - name: Endpoint smoke test
+        run: |
+          cd src
+          python -c "
+          import sys; sys.path.insert(0, '.')
+          from main import app, bot_state
+          from fastapi.testclient import TestClient
+          client = TestClient(app)
+          r = client.get('/'); assert r.status_code == 200, r.text
+          r = client.get('/api/status'); assert r.status_code == 200
+          d = r.json()
+          assert 'is_running' in d
+          assert 'current_model' in d
+          r = client.post('/api/control', json={'action':'start','interval':5}); assert r.json()['status'] == 'started'
+          r = client.post('/api/control', json={'action':'stop'}); assert r.json()['status'] == 'stopped'
+          r = client.post('/api/model', json={'model':'deepseek/deepseek-chat-v3.1:free'}); assert r.json()['status'] == 'ok'
+          r = client.post('/api/reset'); assert r.json()['status'] == 'reset'
+          print('All endpoint tests passed')
+          "

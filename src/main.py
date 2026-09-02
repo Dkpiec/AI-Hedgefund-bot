@@ -15,8 +15,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 sys.path.append(str(Path(__file__).parent))
-from config import SYMBOLS, DEFAULT_INTERVAL, DASHBOARD_HOST, DASHBOARD_PORT, PAPER_MODE
-from ai_brain import get_ai_decision
+from config import SYMBOLS, DEFAULT_INTERVAL, DASHBOARD_HOST, DASHBOARD_PORT, PAPER_MODE, OPENROUTER_MODEL
+from ai_brain import get_ai_decision, _resolve_free_model
 from execution import execute_trade
 
 # Lazy import MT5 (only required when actually trading)
@@ -40,6 +40,8 @@ bot_state = {
     "paper_mode": PAPER_MODE,
     "started_at": None,
     "cycles_completed": 0,
+    "current_model": OPENROUTER_MODEL,
+    "resolved_model": OPENROUTER_MODEL,
 }
 
 # ============================================================================
@@ -92,6 +94,60 @@ async def reset():
     bot_state["trade_history"] = []
     bot_state["cycles_completed"] = 0
     return {"status": "reset"}
+
+
+@app.get("/api/models")
+async def list_models():
+    """Return available OpenRouter models (free first)."""
+    try:
+        import requests
+        from config import OPENROUTER_API_KEY, OPENROUTER_BASE_URL
+        resp = requests.get(
+            f"{OPENROUTER_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return {"error": f"OpenRouter returned {resp.status_code}", "models": []}
+        all_models = resp.json().get("data", [])
+        free = [m["id"] for m in all_models
+                if m.get("pricing", {}).get("prompt") == "0"
+                and m.get("pricing", {}).get("completion") == "0"]
+        return {
+            "current": bot_state["current_model"],
+            "resolved": _resolve_free_model(),
+            "free": free[:30],   # top 30 free
+            "all_count": len(all_models),
+            "free_count": len(free),
+        }
+    except Exception as e:
+        return {"error": str(e), "models": []}
+
+
+@app.post("/api/model")
+async def set_model(request: Request):
+    """Change the active model at runtime."""
+    body = await request.json()
+    model = body.get("model", "").strip()
+    if not model:
+        return {"error": "No model provided"}
+    bot_state["current_model"] = model
+    bot_state["resolved_model"] = _resolve_free_model() if model == "openrouter/free" else model
+    # Persist to .env so it survives restarts
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        lines = env_file.read_text().splitlines()
+        new_lines, found = [], False
+        for line in lines:
+            if line.startswith("OPENROUTER_MODEL="):
+                new_lines.append(f"OPENROUTER_MODEL={model}")
+                found = True
+            else:
+                new_lines.append(line)
+        if not found:
+            new_lines.append(f"OPENROUTER_MODEL={model}")
+        env_file.write_text("\n".join(new_lines) + "\n")
+    return {"status": "ok", "current": bot_state["current_model"], "resolved": bot_state["resolved_model"]}
 
 
 # ============================================================================

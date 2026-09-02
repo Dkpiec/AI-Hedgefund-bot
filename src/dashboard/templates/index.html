@@ -79,6 +79,19 @@
       </div>
 
       <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">AI Model</h3>
+        <select id="model-select" class="w-full bg-black border border-lime-500 text-lime-400 text-xs p-2 rounded mb-1">
+          <option value="openrouter/free">openrouter/free (Auto-Free)</option>
+          <option value="deepseek/deepseek-chat-v3.1:free">DeepSeek V3.1 (Free)</option>
+          <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (Free)</option>
+          <option value="qwen/qwen-2.5-72b-instruct:free">Qwen 2.5 72B (Free)</option>
+          <option value="mistralai/mistral-small-24b-instruct-2501:free">Mistral Small (Free)</option>
+          <option value="google/gemini-2.0-flash-exp:free">Gemini 2.0 Flash (Free)</option>
+        </select>
+        <p class="text-[10px] text-gray-500">Active: <span id="active-model-name" class="text-lime-400">openrouter/free</span></p>
+      </div>
+
+      <div class="panel p-4 rounded">
         <h3 class="text-xs text-gray-500 uppercase mb-2">AI Logic</h3>
         <p class="text-xs text-gray-300 leading-relaxed" id="ai-logic">Bot idle.</p>
       </div>
@@ -181,6 +194,9 @@
       document.getElementById('cycles').textContent = state.cycles_completed || 0;
       document.getElementById('mode-label').textContent = state.paper_mode ? 'PAPER (no real orders)' : 'LIVE';
       document.getElementById('mode-label').style.color = state.paper_mode ? '#FFD700' : '#FF6B6B';
+      if (state.current_model) {
+        document.getElementById('active-model-name').textContent = state.resolved_model ? `${state.current_model} (${state.resolved_model})` : state.current_model;
+      }
 
       const dot = document.getElementById('status-dot');
       const label = document.getElementById('status-label');
@@ -238,6 +254,15 @@
 
   document.getElementById('reset-btn').addEventListener('click', async () => {
     await fetch('/api/reset', {method: 'POST'});
+  });
+
+  document.getElementById('model-select').addEventListener('change', async (e) => {
+    const selected = e.target.value;
+    await fetch('/api/model', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model: selected}),
+    });
   });
 </script>
 </body>
