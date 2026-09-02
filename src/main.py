@@ -1,0 +1,166 @@
+"""
+Main FastAPI App - AI Hedge Fund Bot
+======================================
+Provides endpoints to control the bot, view status, and serves
+the cyberpunk dashboard at /
+"""
+import asyncio
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+sys.path.append(str(Path(__file__).parent))
+from config import SYMBOLS, DEFAULT_INTERVAL, DASHBOARD_HOST, DASHBOARD_PORT, PAPER_MODE
+from ai_brain import get_ai_decision
+from execution import execute_trade
+
+# Lazy import MT5 (only required when actually trading)
+def _mt5():
+    from data.data_engine import fetch_multi_timeframe_data, get_account_info
+    return fetch_multi_timeframe_data, get_account_info
+
+# ============================================================================
+# GLOBAL STATE
+# ============================================================================
+bot_state = {
+    "is_running": False,
+    "interval": DEFAULT_INTERVAL,
+    "equity": 0.0,
+    "balance": 0.0,
+    "last_logic": "Bot idle. Click 'Initialize Engine' to start.",
+    "last_confidence": 0,
+    "last_signal": "HOLD",
+    "last_symbol": "",
+    "trade_history": [],
+    "paper_mode": PAPER_MODE,
+    "started_at": None,
+    "cycles_completed": 0,
+}
+
+# ============================================================================
+# FASTAPI APP
+# ============================================================================
+app = FastAPI(title="AI Hedge Fund Bot", version="1.0.0")
+
+BASE_DIR = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "dashboard" / "static")), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "dashboard" / "templates"))
+
+
+# ============================================================================
+# ROUTES
+# ============================================================================
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Serve the cyberpunk dashboard."""
+    return templates.TemplateResponse(request, "index.html", {"symbols": SYMBOLS})
+
+
+@app.post("/api/control")
+async def control(request: Request):
+    """Start/stop the bot and set interval."""
+    body = await request.json()
+    action = body.get("action", "").lower()
+    interval = body.get("interval", DEFAULT_INTERVAL)
+
+    if action == "start":
+        bot_state["is_running"] = True
+        bot_state["interval"] = int(interval)
+        bot_state["started_at"] = datetime.utcnow().isoformat()
+        asyncio.create_task(trading_loop())
+        return {"status": "started", "interval": interval}
+    elif action == "stop":
+        bot_state["is_running"] = False
+        return {"status": "stopped"}
+    return {"error": f"Unknown action: {action}"}
+
+
+@app.get("/api/status")
+async def status():
+    """Return current bot state."""
+    return bot_state
+
+
+@app.post("/api/reset")
+async def reset():
+    """Reset trade history."""
+    bot_state["trade_history"] = []
+    bot_state["cycles_completed"] = 0
+    return {"status": "reset"}
+
+
+# ============================================================================
+# TRADING LOOP
+# ============================================================================
+async def trading_loop():
+    """Main bot loop — iterates over SYMBOLS, fetches data, queries AI, executes."""
+    while bot_state["is_running"]:
+        for symbol in SYMBOLS:
+            if not bot_state["is_running"]:
+                break
+            try:
+                # Fetch market data (lazy MT5 import)
+                try:
+                    fetch_multi_timeframe_data, _ = _mt5()
+                    market_data = fetch_multi_timeframe_data(symbol)
+                except (ImportError, ModuleNotFoundError):
+                    bot_state["last_logic"] = f"MT5 not installed — running in stub mode for {symbol}"
+                    await asyncio.sleep(2)
+                    continue
+                if not market_data:
+                    bot_state["last_logic"] = f"No data for {symbol}"
+                    continue
+
+                # Get AI decision
+                decision = get_ai_decision(market_data, symbol)
+                bot_state["last_logic"] = decision.get("logic", "")
+                bot_state["last_confidence"] = decision.get("confidence_score", 0)
+                bot_state["last_signal"] = decision.get("signal", "HOLD")
+                bot_state["last_symbol"] = symbol
+                bot_state["equity"] = market_data.get("equity", 0)
+
+                # Execute if BUY/SELL
+                if decision["signal"] in ("BUY", "SELL"):
+                    result = execute_trade(
+                        symbol,
+                        decision["signal"],
+                        market_data.get("ask", 0),
+                    )
+                    if result.get("success"):
+                        bot_state["trade_history"].append({
+                            "time": datetime.utcnow().isoformat(),
+                            "asset": symbol,
+                            "signal": decision["signal"],
+                            "logic": decision["logic"],
+                            "confidence": decision.get("confidence_score", 0),
+                            "price": result.get("price", 0),
+                            "sl": result.get("sl", 0),
+                            "tp": result.get("tp", 0),
+                            "mode": result.get("mode", "LIVE"),
+                        })
+                        # Keep last 100 trades
+                        bot_state["trade_history"] = bot_state["trade_history"][-100:]
+
+            except Exception as e:
+                bot_state["last_logic"] = f"Error on {symbol}: {str(e)[:200]}"
+
+            await asyncio.sleep(1)  # Brief pause between symbols
+
+        bot_state["cycles_completed"] += 1
+        await asyncio.sleep(bot_state["interval"])
+
+
+# ============================================================================
+# ENTRYPOINT
+# ============================================================================
+if __name__ == "__main__":
+    import uvicorn
+    print(f"[BOT] Starting on http://{DASHBOARD_HOST}:{DASHBOARD_PORT}")
+    print(f"[BOT] Symbols: {SYMBOLS}")
+    print(f"[BOT] Paper mode: {PAPER_MODE}")
+    uvicorn.run(app, host=DASHBOARD_HOST, port=DASHBOARD_PORT, log_level="info")

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Hedge Fund Bot</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root {
+    --graphite: #0B120E;
+    --lime: #75E063;
+    --lime-dim: #4a9a3d;
+  }
+  body { background: var(--graphite); color: #c8e6c9; font-family: 'JetBrains Mono', monospace; }
+  .neon-text { color: var(--lime); text-shadow: 0 0 8px var(--lime); }
+  .neon-border { border: 1px solid var(--lime); box-shadow: 0 0 6px var(--lime); }
+  .neon-btn {
+    background: transparent; color: var(--lime); border: 1px solid var(--lime);
+    padding: 8px 20px; cursor: pointer; transition: all 0.2s;
+  }
+  .neon-btn:hover { background: var(--lime); color: var(--graphite); box-shadow: 0 0 12px var(--lime); }
+  .neon-btn.danger { color: #ff5252; border-color: #ff5252; }
+  .neon-btn.danger:hover { background: #ff5252; color: white; }
+  #canvas-bg { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; }
+  .panel {
+    background: rgba(11, 18, 14, 0.85); border: 1px solid var(--lime-dim);
+    backdrop-filter: blur(6px);
+  }
+  .trade-row { animation: slideIn 0.3s ease; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+  .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #666; }
+  .status-dot.running { background: var(--lime); box-shadow: 0 0 8px var(--lime); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+</style>
+</head>
+<body class="min-h-screen p-4">
+<canvas id="canvas-bg"></canvas>
+
+<div class="container mx-auto max-w-7xl">
+  <!-- Header -->
+  <header class="flex items-center justify-between mb-6 panel p-4 rounded">
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-bold neon-text">⚡ AI HEDGE FUND</h1>
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-label" class="text-sm text-gray-400">IDLE</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <select id="interval-select" class="bg-black border border-lime-500 text-lime-400 px-3 py-2 rounded">
+        <option value="30">30 sec</option>
+        <option value="60">1 min</option>
+        <option value="300">5 min</option>
+        <option value="3600">1 hour</option>
+      </select>
+      <button id="toggle-btn" class="neon-btn">▶ Initialize Engine</button>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- Left: Metrics -->
+    <div class="lg:col-span-1 space-y-4">
+      <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">Live Equity</h3>
+        <p class="text-3xl font-bold neon-text" id="equity">$0.00</p>
+        <p class="text-xs text-gray-500 mt-1">Balance: <span id="balance">$0.00</span></p>
+      </div>
+
+      <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">Current Signal</h3>
+        <p class="text-xl font-bold" id="current-signal">HOLD</p>
+        <p class="text-xs text-gray-400 mt-1" id="current-symbol">--</p>
+      </div>
+
+      <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">AI Confidence</h3>
+        <div class="w-full bg-gray-800 rounded h-3 overflow-hidden">
+          <div id="confidence-bar" class="h-3 bg-lime-500 transition-all" style="width: 0%"></div>
+        </div>
+        <p class="text-sm mt-1 neon-text" id="confidence-value">0%</p>
+      </div>
+
+      <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">AI Logic</h3>
+        <p class="text-xs text-gray-300 leading-relaxed" id="ai-logic">Bot idle.</p>
+      </div>
+
+      <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">Stats</h3>
+        <p class="text-xs">Cycles: <span id="cycles">0</span></p>
+        <p class="text-xs">Trades: <span id="trade-count">0</span></p>
+        <p class="text-xs">Mode: <span id="mode-label">PAPER</span></p>
+      </div>
+    </div>
+
+    <!-- Right: Execution Feed -->
+    <div class="lg:col-span-2">
+      <div class="panel p-4 rounded h-full">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg neon-text">Live Execution Feed</h3>
+          <button id="reset-btn" class="neon-btn danger text-xs">Clear</button>
+        </div>
+        <div id="trade-feed" class="space-y-2 max-h-[600px] overflow-y-auto">
+          <p class="text-xs text-gray-500">No trades yet. Initialize the engine to start.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const canvas = document.getElementById('canvas-bg');
+  const ctx = canvas.getContext('2d');
+  let circles = [];
+  const assetColors = { 'EURUSDm': '#75E063', 'GBPUSDm': '#FFD700', 'BTCUSDm': '#FF6B6B', 'XAUUSDm': '#FFA500', 'USDJPYm': '#00BFFF' };
+
+  function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function spawnCircle(asset) {
+    const color = assetColors[asset] || '#75E063';
+    circles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.5,
+      vy: (Math.random() - 0.5) * 0.5,
+      r: 4 + Math.random() * 3,
+      color,
+      age: 0,
+    });
+    if (circles.length > 80) circles.shift();
+  }
+
+  function drawCanvas() {
+    ctx.fillStyle = 'rgba(11, 18, 14, 0.15)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Draw connecting lines
+    for (let i = 0; i < circles.length; i++) {
+      for (let j = i + 1; j < circles.length; j++) {
+        const dx = circles[i].x - circles[j].x, dy = circles[i].y - circles[j].y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 200) {
+          ctx.strokeStyle = `rgba(117, 224, 99, ${0.15 * (1 - dist/200)})`;
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(circles[i].x, circles[i].y);
+          ctx.lineTo(circles[j].x, circles[j].y);
+          ctx.stroke();
+        }
+      }
+    }
+    // Draw circles
+    circles.forEach(c => {
+      c.x += c.vx; c.y += c.vy; c.age++;
+      if (c.x < 0 || c.x > canvas.width) c.vx *= -1;
+      if (c.y < 0 || c.y > canvas.height) c.vy *= -1;
+      ctx.fillStyle = c.color;
+      ctx.shadowColor = c.color;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.shadowBlur = 0;
+    requestAnimationFrame(drawCanvas);
+  }
+  drawCanvas();
+
+  // UI updates
+  async function pollBackend() {
+    try {
+      const resp = await fetch('/api/status');
+      const state = await resp.json();
+      document.getElementById('equity').textContent = '$' + (state.equity || 0).toFixed(2);
+      document.getElementById('balance').textContent = '$' + (state.balance || 0).toFixed(2);
+      document.getElementById('current-signal').textContent = state.last_signal || 'HOLD';
+      document.getElementById('current-signal').style.color = state.last_signal === 'BUY' ? '#75E063' : state.last_signal === 'SELL' ? '#FF6B6B' : '#888';
+      document.getElementById('current-symbol').textContent = state.last_symbol || '--';
+      document.getElementById('confidence-bar').style.width = (state.last_confidence || 0) + '%';
+      document.getElementById('confidence-value').textContent = (state.last_confidence || 0) + '%';
+      document.getElementById('ai-logic').textContent = state.last_logic || 'Bot idle.';
+      document.getElementById('cycles').textContent = state.cycles_completed || 0;
+      document.getElementById('mode-label').textContent = state.paper_mode ? 'PAPER (no real orders)' : 'LIVE';
+      document.getElementById('mode-label').style.color = state.paper_mode ? '#FFD700' : '#FF6B6B';
+
+      const dot = document.getElementById('status-dot');
+      const label = document.getElementById('status-label');
+      if (state.is_running) {
+        dot.classList.add('running');
+        label.textContent = 'RUNNING';
+        label.style.color = '#75E063';
+      } else {
+        dot.classList.remove('running');
+        label.textContent = 'IDLE';
+        label.style.color = '#888';
+      }
+
+      const toggle = document.getElementById('toggle-btn');
+      toggle.textContent = state.is_running ? '■ Stop Engine' : '▶ Initialize Engine';
+      toggle.className = state.is_running ? 'neon-btn danger' : 'neon-btn';
+
+      // Render trade feed
+      const feed = document.getElementById('trade-feed');
+      const trades = state.trade_history || [];
+      document.getElementById('trade-count').textContent = trades.length;
+      if (trades.length > 0) {
+        feed.innerHTML = trades.slice().reverse().map(t => `
+          <div class="trade-row panel p-2 rounded text-xs">
+            <div class="flex justify-between">
+              <span class="font-bold" style="color: ${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}">${t.signal} ${t.asset}</span>
+              <span class="text-gray-500">${new Date(t.time).toLocaleTimeString()}</span>
+            </div>
+            <div class="text-gray-300 mt-1">${t.logic || ''}</div>
+            <div class="text-gray-500 mt-1">Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%</div>
+          </div>
+        `).join('');
+        // Spawn circle for the most recent trade if new
+        if (window.lastTradeCount !== trades.length) {
+          spawnCircle(trades[trades.length - 1].asset);
+          window.lastTradeCount = trades.length;
+        }
+      }
+    } catch (e) {
+      console.error('Poll failed:', e);
+    }
+  }
+  setInterval(pollBackend, 3000);
+  pollBackend();
+
+  document.getElementById('toggle-btn').addEventListener('click', async () => {
+    const state = await (await fetch('/api/status')).json();
+    const interval = document.getElementById('interval-select').value;
+    await fetch('/api/control', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({action: state.is_running ? 'stop' : 'start', interval: parseInt(interval)}),
+    });
+  });
+
+  document.getElementById('reset-btn').addEventListener('click', async () => {
+    await fetch('/api/reset', {method: 'POST'});
+  });
+</script>
+</body>
+</html>
