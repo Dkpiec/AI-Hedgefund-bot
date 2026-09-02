@@ -5,19 +5,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:    # allow manual run from Actions tab
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     env:
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENROUTER_MODEL:   ${{ secrets.OPENROUTER_MODEL || 'openrouter/free' }}
-      MT5_ACCOUNT:        ${{ secrets.MT5_ACCOUNT || '0' }}
-      MT5_PASSWORD:       ${{ secrets.MT5_PASSWORD || '' }}
-      MT5_SERVER:         ${{ secrets.MT5_SERVER || 'MetaQuotes-Demo' }}
-      PAPER_MODE:         "true"
+      OPENROUTER_API_KEY:   ${{ secrets.OPENROUTER_API_KEY || 'your-openrouter-api-key-here' }}
+      OPENROUTER_MODEL:     ${{ secrets.OPENROUTER_MODEL || 'openrouter/free' }}
+      BINANCE_API_KEY:      ${{ secrets.BINANCE_API_KEY || '' }}
+      BINANCE_API_SECRET:   ${{ secrets.BINANCE_API_SECRET || '' }}
+      BINANCE_TESTNET:      "true"
+      STARTING_BALANCE:     "200"
+      MAX_PRICE_USD:        "2000"
+      MIN_24H_VOLUME_USDT:  "50000000"
 
     steps:
       - uses: actions/checkout@v4
@@ -27,17 +29,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies (no MT5 on Linux CI)
+      - name: Install dependencies
         run: |
-          pip install fastapi uvicorn jinja2 python-multipart \
-                      requests pydantic python-dotenv httpx
+          pip install -r requirements.txt
 
-      - name: Import check — config + ai_brain
+      - name: Import check — config + ai_brain + data + execution
         run: |
           cd src
-          python -c "from config import SYMBOLS, OPENROUTER_MODEL, PAPER_MODE; print('config OK', OPENROUTER_MODEL)"
+          python -c "import config; print('config OK — chart_tf:', config.DEFAULT_CHART_TIMEFRAME, 'scan:', config.DEFAULT_SCAN_INTERVAL)"
           python -c "from ai_brain import _resolve_free_model; print('ai_brain OK')"
-          python -c "from main import app, bot_state; print('main OK — model:', bot_state['current_model'])"
+          python -c "from data.data_engine import fetch_multi_timeframe_data, get_account_info; print('data_engine OK')"
+          python -c "from execution import execute_trade, cancel_expired_orders; print('execution OK')"
+          python -c "from main import app, bot_state; print('main OK — scan_interval:', bot_state['scan_interval'])"
 
       - name: Endpoint smoke test
         run: |
@@ -51,10 +54,23 @@ jobs:
           r = client.get('/api/status'); assert r.status_code == 200
           d = r.json()
           assert 'is_running' in d
-          assert 'current_model' in d
-          r = client.post('/api/control', json={'action':'start','interval':5}); assert r.json()['status'] == 'started'
-          r = client.post('/api/control', json={'action':'stop'}); assert r.json()['status'] == 'stopped'
-          r = client.post('/api/model', json={'model':'deepseek/deepseek-chat-v3.1:free'}); assert r.json()['status'] == 'ok'
-          r = client.post('/api/reset'); assert r.json()['status'] == 'reset'
+          assert 'scan_interval' in d
+          assert d['scan_interval'] in ['1m', '5m', '15m', '30m', '1h']
+          assert d['chart_timeframe'] == '1h'
+          r = client.post('/api/scan-interval', json={'interval': '5m'})
+          assert r.json()['status'] == 'ok'
+          assert r.json()['interval_seconds'] == 300
+          r = client.post('/api/scan-interval', json={'interval': 'bad'})
+          assert 'error' in r.json()
+          r = client.post('/api/control', json={'action': 'start'})
+          assert r.json()['status'] == 'started'
+          r = client.post('/api/control', json={'action': 'stop'})
+          assert r.json()['status'] == 'stopped'
+          r = client.post('/api/model', json={'model': 'deepseek/deepseek-chat-v3.1:free'})
+          assert r.json()['status'] == 'ok'
+          r = client.post('/api/reset')
+          assert r.json()['status'] == 'reset'
+          r = client.post('/api/refresh-universe')
+          assert r.json()['count'] >= 0
           print('All endpoint tests passed')
           "

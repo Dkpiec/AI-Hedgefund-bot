@@ -2,7 +2,7 @@
 AI Hedge Fund Bot - Configuration
 ==================================
 Central configuration for the autonomous trading bot.
-Supports OpenRouter (multi-model) or direct DeepSeek/OpenAI/Anthropic APIs.
+Binance Spot Testnet mode by default (Linux-friendly, no broker install).
 """
 import os
 from pathlib import Path
@@ -24,7 +24,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "your-openrouter-api-key-he
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
 # Default model: auto-resolve to the current OpenRouter free model at runtime
-# if "openrouter/free" is set, the AI brain picks the first free model from /models
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 # Legacy direct API keys (optional fallback)
@@ -33,39 +32,79 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 # ============================================================================
-# MT5 DEMO ACCOUNT CONFIGURATION
+# BINANCE SPOT TESTNET CONFIGURATION
 # ============================================================================
-MT5_ACCOUNT = int(os.getenv("MT5_ACCOUNT", "0"))           # Your MT5 demo account number
-MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")               # Your MT5 password
-MT5_SERVER = os.getenv("MT5_SERVER", "MetaQuotes-Demo")    # e.g. MetaQuotes-Demo
+# Testnet endpoint: https://testnet.binance.vision
+# Get free testnet API keys at: https://testnet.binance.vision/
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
 
-# Starting demo account balance (used when MT5 is not connected / paper mode)
-STARTING_BALANCE = float(os.getenv("STARTING_BALANCE", "100"))
+# Starting testnet account balance in USDT
+STARTING_BALANCE = float(os.getenv("STARTING_BALANCE", "200"))
 
 # ============================================================================
 # TRADING CONFIGURATION
 # ============================================================================
-# Multi-asset symbol universe (MT5 symbol names)
-SYMBOLS = [
-    "EURUSDm",   # Euro / US Dollar
-    "GBPUSDm",   # British Pound / US Dollar
-    "BTCUSDm",   # Bitcoin / US Dollar
-    "XAUUSDm",   # Gold / US Dollar
-    "USDJPYm",   # US Dollar / Japanese Yen
+# Timeframe options the user can pick from the dashboard dropdown
+# 1h = chart candles (H1) the AI analyzes; user-approved default 2026-09-02
+CHART_TIMEFRAMES = ["1h"]
+DEFAULT_CHART_TIMEFRAME = "1h"
+
+# Loop cycle intervals (how often the AI re-checks the market)
+# Dropdown: 1 min, 5 min, 15 min, 30 min, 1 hour
+SCAN_INTERVALS = {
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+}
+SCAN_INTERVAL_OPTIONS = ["1m", "5m", "15m", "30m", "1h"]
+DEFAULT_SCAN_INTERVAL = "1h"
+
+# Maximum price filter (USD) — skip any symbol priced above this
+# (excludes BTC, ETH, BNB by design; user-set on 2026-09-02)
+MAX_PRICE_USD = float(os.getenv("MAX_PRICE_USD", "2000"))
+
+# Minimum 24h volume filter (USDT) — only trade liquid assets
+MIN_24H_VOLUME_USDT = float(os.getenv("MIN_24H_VOLUME_USDT", "50_000_000"))
+
+# Candidate universe — filtered at startup by price + volume rules
+# Conservative list of liquid USDT pairs that usually price under $2000
+CANDIDATE_SYMBOLS = [
+    "SOLUSDT",    # Solana — liquid, mid-cap
+    "XRPUSDT",    # Ripple — high volume
+    "ADAUSDT",    # Cardano
+    "DOGEUSDT",   # Dogecoin
+    "AVAXUSDT",   # Avalanche
+    "LINKUSDT",   # Chainlink
+    "DOTUSDT",    # Polkadot
+    "MATICUSDT",  # Polygon
+    "LTCUSDT",    # Litecoin
+    "NEARUSDT",   # Near Protocol
+    "ATOMUSDT",   # Cosmos
+    "ALGOUSDT",   # Algorand
+    "XLMUSDT",    # Stellar
+    "VETUSDT",    # VeChain
+    "ICPUSDT",    # Internet Computer
 ]
 
-# Risk management (percentage-based)
-SL_PERCENT = 0.002     # 0.2% stop loss
-TP_PERCENT = 0.004     # 0.4% take profit (2:1 R:R)
+# These get populated by data_engine._filter_universe() at startup
+SYMBOLS = []
 
-# Position sizing (lots)
-LOT_SIZE = 0.02        # Doubled for $100 demo account
+# Risk management
+# Crypto is 5-10x more volatile than Forex, so we need wider stops and targets
+SL_PERCENT = 0.0075   # 0.75% stop loss
+TP_PERCENT = 0.015    # 1.5% take profit (2:1 R:R)
+RISK_PER_TRADE = 0.05  # 5% of capital per trade (user-set 2026-09-02)
 
-# Trading interval (seconds)
-DEFAULT_INTERVAL = 30
+# Order management
+ORDER_TIMEOUT_SECONDS = 300   # 5 min — cancel unfilled limit orders
+STRICT_LIMIT_ORDERS = True    # market orders disabled; only limit orders
 
-# Paper trading mode (no real orders)
-PAPER_MODE = os.getenv("PAPER_MODE", "true").lower() == "true"
+# Scanner cadence (seconds between full multi-timeframe scans)
+DEFAULT_INTERVAL = 300        # 5 min (matches fastest timeframe)
 
 # ============================================================================
 # DASHBOARD CONFIGURATION
