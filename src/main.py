@@ -206,7 +206,7 @@ async def trading_loop():
                         won = roll < 0.60
                         outcome = "TP_HIT" if won else "SL_HIT"
                         # PnL: +TP% of trade value on win, -SL% on loss
-                        trade_value = bot_state["balance"] * 0.10  # 10% position size
+                        trade_value = bot_state["balance"] * 0.20  # 20% position size (doubled from 10%)
                         pnl = trade_value * (TP_PERCENT if won else -SL_PERCENT)
                         bot_state["balance"] += pnl
                         bot_state["equity"] = bot_state["balance"]

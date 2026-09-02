@@ -59,7 +59,7 @@ SL_PERCENT = 0.002     # 0.2% stop loss
 TP_PERCENT = 0.004     # 0.4% take profit (2:1 R:R)
 
 # Position sizing (lots)
-LOT_SIZE = 0.01        # Conservative starting size for demo
+LOT_SIZE = 0.02        # Doubled for $100 demo account
 
 # Trading interval (seconds)
 DEFAULT_INTERVAL = 30
