@@ -72,5 +72,13 @@ jobs:
           assert r.json()['status'] == 'reset'
           r = client.post('/api/refresh-universe')
           assert r.json()['count'] >= 0
+          # Test one-position-per-symbol enforcement
+          from execution import OPEN_ORDERS, has_open_position
+          OPEN_ORDERS.clear()
+          assert has_open_position('BTCUSDT') is False
+          OPEN_ORDERS['test1'] = {'symbol': 'BTCUSDT', 'placed_at': 0, 'qty': 1, 'price': 100}
+          assert has_open_position('BTCUSDT') is True
+          assert has_open_position('ETHUSDT') is False
+          OPEN_ORDERS.clear()
           print('All endpoint tests passed')
           "

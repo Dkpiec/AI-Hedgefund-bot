@@ -44,6 +44,8 @@ from execution import (
     cancel_expired_orders,
     execute_trade,
     get_open_orders,
+    has_open_position,
+    sync_open_orders,
 )
 
 # ============================================================================
@@ -274,6 +276,13 @@ async def trading_loop():
         interval = SCAN_INTERVALS[interval_key]
         chart_tf = bot_state["chart_timeframe"]
 
+        # 0. Sync open orders with Binance (filled/closed orders are removed
+        #    from tracking, so the per-symbol position check works correctly).
+        try:
+            sync_open_orders()
+        except Exception as e:
+            print(f"[BOT] sync_open_orders error: {e}")
+
         for symbol in bot_state["universe"] or SYMBOLS:
             if not bot_state["is_running"]:
                 break
@@ -304,8 +313,13 @@ async def trading_loop():
                     bot_state["last_logic"] += " (skipped: low confidence)"
                     continue
 
-                # 5. Execute on BUY/SELL
+                # 5. Execute on BUY/SELL — but ONLY if no open position for this symbol
                 if decision["signal"] in ("BUY", "SELL"):
+                    if has_open_position(symbol):
+                        bot_state["last_logic"] = (
+                            f"{symbol}: position already open, skipping {decision['signal']}"
+                        )
+                        continue
                     result = execute_trade(
                         symbol,
                         decision["signal"],
