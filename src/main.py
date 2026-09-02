@@ -15,7 +15,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 sys.path.append(str(Path(__file__).parent))
-from config import SYMBOLS, DEFAULT_INTERVAL, DASHBOARD_HOST, DASHBOARD_PORT, PAPER_MODE, OPENROUTER_MODEL
+from config import (
+    SYMBOLS, DEFAULT_INTERVAL, DASHBOARD_HOST, DASHBOARD_PORT, PAPER_MODE,
+    OPENROUTER_MODEL, STARTING_BALANCE, TP_PERCENT, SL_PERCENT,
+)
 from ai_brain import get_ai_decision, _resolve_free_model
 from execution import execute_trade
 
@@ -30,8 +33,11 @@ def _mt5():
 bot_state = {
     "is_running": False,
     "interval": DEFAULT_INTERVAL,
-    "equity": 0.0,
-    "balance": 0.0,
+    "equity": STARTING_BALANCE,
+    "balance": STARTING_BALANCE,
+    "starting_balance": STARTING_BALANCE,
+    "pnl": 0.0,
+    "pnl_pct": 0.0,
     "last_logic": "Bot idle. Click 'Initialize Engine' to start.",
     "last_confidence": 0,
     "last_signal": "HOLD",
@@ -90,10 +96,14 @@ async def status():
 
 @app.post("/api/reset")
 async def reset():
-    """Reset trade history."""
+    """Reset trade history and balance to starting balance."""
     bot_state["trade_history"] = []
     bot_state["cycles_completed"] = 0
-    return {"status": "reset"}
+    bot_state["balance"] = STARTING_BALANCE
+    bot_state["equity"] = STARTING_BALANCE
+    bot_state["pnl"] = 0.0
+    bot_state["pnl_pct"] = 0.0
+    return {"status": "reset", "balance": STARTING_BALANCE}
 
 
 @app.get("/api/models")
@@ -188,6 +198,19 @@ async def trading_loop():
                         market_data.get("ask", 0),
                     )
                     if result.get("success"):
+                        # Simulated paper-trade outcome: 60% win at TP, 40% loss at SL
+                        import random
+                        roll = random.random()
+                        won = roll < 0.60
+                        outcome = "TP_HIT" if won else "SL_HIT"
+                        # PnL: +TP% of trade value on win, -SL% on loss
+                        trade_value = bot_state["balance"] * 0.10  # 10% position size
+                        pnl = trade_value * (TP_PERCENT if won else -SL_PERCENT)
+                        bot_state["balance"] += pnl
+                        bot_state["equity"] = bot_state["balance"]
+                        bot_state["pnl"] = bot_state["balance"] - bot_state["starting_balance"]
+                        bot_state["pnl_pct"] = (bot_state["pnl"] / bot_state["starting_balance"]) * 100
+
                         bot_state["trade_history"].append({
                             "time": datetime.utcnow().isoformat(),
                             "asset": symbol,
@@ -198,6 +221,9 @@ async def trading_loop():
                             "sl": result.get("sl", 0),
                             "tp": result.get("tp", 0),
                             "mode": result.get("mode", "LIVE"),
+                            "outcome": outcome,
+                            "pnl": round(pnl, 2),
+                            "balance_after": round(bot_state["balance"], 2),
                         })
                         # Keep last 100 trades
                         bot_state["trade_history"] = bot_state["trade_history"][-100:]

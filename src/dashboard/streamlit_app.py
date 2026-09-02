@@ -7,13 +7,18 @@ Run separately on port 8501.
 
 Usage:
   streamlit run src/dashboard/streamlit_app.py
+
+Env vars:
+  API_BASE — FastAPI backend URL (default http://localhost:8000)
+             On Streamlit Cloud, set to your Render.com URL via secrets.
 """
+import os
 import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
 
-API_BASE = "http://localhost:8000"
+API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 
 # ============================================================================
 # PAGE CONFIG
@@ -89,7 +94,12 @@ with col_a:
     status_label = "🟢 RUNNING" if state.get("is_running") else "🔴 IDLE"
     st.metric("Engine", status_label)
 with col_b:
-    st.metric("Equity", f"${state.get('equity', 0):,.2f}")
+    bal = state.get("balance", 0)
+    start = state.get("starting_balance", 5000)
+    pnl = state.get("pnl", 0)
+    delta = pnl
+    delta_pct = state.get("pnl_pct", 0)
+    st.metric("Balance", f"${bal:,.2f}", delta=f"{'+' if delta>=0 else ''}${delta:,.2f} ({'+' if delta_pct>=0 else ''}{delta_pct:.2f}%)")
 with col_c:
     sig = state.get("last_signal", "HOLD")
     sig_color = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(sig, "⚪")
@@ -98,6 +108,8 @@ with col_d:
     st.metric("Confidence", f"{state.get('last_confidence', 0)}%")
 with col_e:
     st.metric("Mode", "PAPER" if state.get("paper_mode") else "LIVE")
+
+st.caption(f"Starting balance: **${start:,.2f}** | Current: **${bal:,.2f}** | Equity: **${state.get('equity', bal):,.2f}**")
 
 # ============================================================================
 # SIDEBAR — CONTROLS
@@ -189,7 +201,7 @@ else:
         df["tp"] = df["tp"].astype(float).round(5)
 
     st.dataframe(
-        df[["time", "asset", "signal", "confidence", "price", "sl", "tp", "mode", "logic"]],
+        df[["time", "asset", "signal", "outcome", "pnl", "balance_after", "confidence", "price", "sl", "tp", "mode"]],
         use_container_width=True,
         hide_index=True,
     )
@@ -202,17 +214,11 @@ if trades:
     eq_df = pd.DataFrame(trades)
     eq_df["time"] = pd.to_datetime(eq_df["time"])
     eq_df = eq_df.sort_values("time")
-    # Build synthetic equity walk-forward: starting from last equity, +0.0004*balance on BUY, -0.0002 on SELL
-    balance = 100000
-    equity_curve = []
-    for _, row in eq_df.iterrows():
-        if row["signal"] == "BUY":
-            balance += 40   # 0.04% of 100k
-        elif row["signal"] == "SELL":
-            balance -= 20
-        equity_curve.append({"time": row["time"], "Equity": balance})
-    eq_plot = pd.DataFrame(equity_curve).set_index("time")
-    st.line_chart(eq_plot, height=300)
+    if "balance_after" in eq_df.columns:
+        eq_plot = eq_df.set_index("time")[["balance_after"]].rename(columns={"balance_after": "Equity ($)"})
+        st.line_chart(eq_plot, height=300)
+    else:
+        st.info("Equity curve will appear after the first trade.")
 
 # ============================================================================
 # AUTO-REFRESH

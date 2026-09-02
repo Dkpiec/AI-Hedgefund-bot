@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: ai-hedgefund-api
+    runtime: python
+    rootDir: src
+    plan: free
+    branch: main
+    buildCommand: pip install -r ../requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openrouter/free
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: MT5_ACCOUNT
+        sync: false
+      - key: MT5_PASSWORD
+        sync: false
+      - key: MT5_SERVER
+        value: MetaQuotes-Demo
+      - key: STARTING_BALANCE
+        value: "5000"
+      - key: PAPER_MODE
+        value: "true"
+      - key: DASHBOARD_HOST
+        value: 0.0.0.0
+      - key: DASHBOARD_PORT
+        fromService:
+          type: web
+          name: ai-hedgefund-api
+          property: port

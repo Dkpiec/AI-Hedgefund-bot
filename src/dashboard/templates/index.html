@@ -59,9 +59,16 @@
     <!-- Left: Metrics -->
     <div class="lg:col-span-1 space-y-4">
       <div class="panel p-4 rounded">
+        <h3 class="text-xs text-gray-500 uppercase mb-2">Account Balance</h3>
+        <p class="text-3xl font-bold neon-text" id="balance">$5,000.00</p>
+        <p class="text-xs text-gray-500 mt-1">Starting: $<span id="starting-balance">5,000.00</span></p>
+        <p class="text-sm mt-2" id="pnl-display">P&amp;L: <span class="text-gray-400">$0.00 (0.00%)</span></p>
+      </div>
+
+      <div class="panel p-4 rounded">
         <h3 class="text-xs text-gray-500 uppercase mb-2">Live Equity</h3>
-        <p class="text-3xl font-bold neon-text" id="equity">$0.00</p>
-        <p class="text-xs text-gray-500 mt-1">Balance: <span id="balance">$0.00</span></p>
+        <p class="text-2xl font-bold neon-text" id="equity">$5,000.00</p>
+        <p class="text-xs text-gray-500 mt-1">Realized from <span id="trade-count">0</span> trades</p>
       </div>
 
       <div class="panel p-4 rounded">
@@ -183,8 +190,18 @@
     try {
       const resp = await fetch('/api/status');
       const state = await resp.json();
-      document.getElementById('equity').textContent = '$' + (state.equity || 0).toFixed(2);
-      document.getElementById('balance').textContent = '$' + (state.balance || 0).toFixed(2);
+      const startBal = state.starting_balance || 5000;
+      const bal = state.balance || startBal;
+      const eq = state.equity || startBal;
+      const pnl = state.pnl || 0;
+      const pnlPct = state.pnl_pct || 0;
+
+      document.getElementById('balance').textContent = '$' + bal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('starting-balance').textContent = startBal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      document.getElementById('equity').textContent = '$' + eq.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+      const pnlColor = pnl > 0 ? '#75E063' : pnl < 0 ? '#FF6B6B' : '#888';
+      const pnlSign = pnl > 0 ? '+' : '';
+      document.getElementById('pnl-display').innerHTML = `P&L: <span style="color:${pnlColor}">${pnlSign}$${pnl.toFixed(2)} (${pnlSign}${pnlPct.toFixed(2)}%)</span>`;
       document.getElementById('current-signal').textContent = state.last_signal || 'HOLD';
       document.getElementById('current-signal').style.color = state.last_signal === 'BUY' ? '#75E063' : state.last_signal === 'SELL' ? '#FF6B6B' : '#888';
       document.getElementById('current-symbol').textContent = state.last_symbol || '--';
@@ -219,16 +236,25 @@
       const trades = state.trade_history || [];
       document.getElementById('trade-count').textContent = trades.length;
       if (trades.length > 0) {
-        feed.innerHTML = trades.slice().reverse().map(t => `
-          <div class="trade-row panel p-2 rounded text-xs">
-            <div class="flex justify-between">
-              <span class="font-bold" style="color: ${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}">${t.signal} ${t.asset}</span>
-              <span class="text-gray-500">${new Date(t.time).toLocaleTimeString()}</span>
-            </div>
-            <div class="text-gray-300 mt-1">${t.logic || ''}</div>
-            <div class="text-gray-500 mt-1">Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%</div>
+      feed.innerHTML = trades.slice().reverse().map(t => {
+        const tPnl = t.pnl || 0;
+        const tColor = tPnl > 0 ? '#75E063' : tPnl < 0 ? '#FF6B6B' : '#888';
+        const tSign = tPnl > 0 ? '+' : '';
+        return `
+        <div class="trade-row panel p-2 rounded text-xs">
+          <div class="flex justify-between">
+            <span class="font-bold" style="color: ${t.signal === 'BUY' ? '#75E063' : '#FF6B6B'}">${t.signal} ${t.asset}</span>
+            <span class="text-gray-500">${new Date(t.time).toLocaleTimeString()}</span>
           </div>
-        `).join('');
+          <div class="text-gray-300 mt-1">${t.logic || ''}</div>
+          <div class="text-gray-500 mt-1">
+            Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%
+          </div>
+          <div class="mt-1 font-bold" style="color: ${tColor}">
+            ${t.outcome || ''} | P&L: ${tSign}$${tPnl.toFixed(2)} | Balance: $${(t.balance_after || 0).toFixed(2)}
+          </div>
+        </div>
+      `}).join('');
         // Spawn circle for the most recent trade if new
         if (window.lastTradeCount !== trades.length) {
           spawnCircle(trades[trades.length - 1].asset);

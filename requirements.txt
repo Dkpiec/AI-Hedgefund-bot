@@ -1,12 +1,15 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-jinja2==3.1.4
-python-multipart==0.0.12
-requests==2.32.3
-pandas==2.2.3
-numpy==2.1.3
-pydantic==2.9.2
-python-dotenv==1.0.1
-MetaTrader5==5.0.45
-streamlit==1.63.0
-httpx==0.28.1
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+jinja2>=3.1.4
+python-multipart>=0.0.12
+requests>=2.32.0
+pandas>=2.2.0
+numpy>=1.26.0
+pydantic>=2.9.0
+python-dotenv>=1.0.0
+streamlit>=1.30.0
+httpx>=0.27.0
+
+# MetaTrader5 only installs on Windows/macOS (native client lib).
+# Skipped on Linux/Render/Streamlit Cloud — bot runs in paper mode there.
+MetaTrader5>=5.0.45 ; sys_platform == "win32" or sys_platform == "darwin"
