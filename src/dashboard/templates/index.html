@@ -170,15 +170,18 @@
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
-  function spawnCircle(asset) {
-    const color = assetColors[asset] || '#75E063';
+  function spawnCircle(asset, signal) {
+    // Color by signal direction: BUY=green, SELL=red, HOLD=gray
+    const sigColor = signal === 'BUY' ? '#75E063' : signal === 'SELL' ? '#FF6B6B' : '#888';
     circles.push({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
       vx: (Math.random() - 0.5) * 0.5,
       vy: (Math.random() - 0.5) * 0.5,
       r: 4 + Math.random() * 3,
-      color,
+      color: sigColor,
+      signal: signal || 'HOLD',
+      asset: asset,
       age: 0,
     });
     if (circles.length > 80) circles.shift();
@@ -269,7 +272,12 @@
         const feed = document.getElementById('trade-feed');
         const trades = state.trade_history || [];
         document.getElementById('trade-count').textContent = trades.length;
-        // Render the dot timeline - completely independent DOM tree
+        // Populate canvas nodes from trade history if canvas is empty
+        if (circles.length === 0 && trades.length > 0) {
+          trades.slice(0, 30).forEach(t => {
+            spawnCircle(t.asset, t.signal);
+          });
+        }
         const timeline = document.getElementById('dot-timeline');
         if (timeline && trades.length > 0) {
           timeline.innerHTML = '<span style="color:#666;font-size:10px;margin-right:4px;">Timeline:</span>' +
@@ -334,7 +342,8 @@
         `}).join('');
         // Spawn circle for the most recent trade if new
         if (window.lastTradeCount !== trades.length) {
-          spawnCircle(trades[trades.length - 1].asset);
+          const lastTrade = trades[trades.length - 1];
+          spawnCircle(lastTrade.asset, lastTrade.signal);
           window.lastTradeCount = trades.length;
         }
       }
