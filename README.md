@@ -29,11 +29,17 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your OPENROUTER_API_KEY and MT5 demo credentials
 
-# Run
+# Run the FastAPI backend (port 8000) — required for the bot
 cd src
 python main.py
-# Open http://localhost:8000
+
+# In a SECOND terminal, run the Streamlit dashboard (port 8501)
+streamlit run src/dashboard/streamlit_app.py
 ```
+
+Then open:
+- Cyberpunk UI: http://localhost:8000
+- Streamlit UI:  http://localhost:8501
 
 ## Architecture
 
