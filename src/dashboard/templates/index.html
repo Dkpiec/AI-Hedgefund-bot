@@ -146,6 +146,17 @@
 
     <!-- Right: Execution Feed -->
     <div class="lg:col-span-2">
+      <div class="panel p-4 rounded mb-4" id="open-orders-panel">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg neon-text">Open Positions
+            <span id="open-orders-count" class="text-xs text-gray-500 ml-2">(0)</span>
+          </h3>
+          <span class="text-xs text-gray-500">Auto-cancel after 5 min if unfilled</span>
+        </div>
+        <div id="open-orders-list" class="space-y-2" style="max-height:300px;overflow-y:auto;">
+          <p class="text-xs text-gray-500" id="open-orders-empty">No open positions yet.</p>
+        </div>
+      </div>
       <div class="panel p-4 rounded h-full">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-lg neon-text">Live Execution Feed</h3>
@@ -250,6 +261,52 @@
       document.getElementById('cycles').textContent = state.cycles_completed || 0;
       document.getElementById('mode-label').textContent = state.paper_mode ? 'PAPER (no real orders)' : 'LIVE';
       document.getElementById('mode-label').style.color = state.paper_mode ? '#FFD700' : '#FF6B6B';
+
+      // Render Open Positions panel
+      const openOrders = state.open_orders || [];
+      const openCountEl = document.getElementById('open-orders-count');
+      const openListEl = document.getElementById('open-orders-list');
+      const openEmptyEl = document.getElementById('open-orders-empty');
+      if (openCountEl) openCountEl.textContent = '(' + openOrders.length + ')';
+      if (openListEl) {
+        if (openOrders.length === 0) {
+          openListEl.innerHTML = '<p class="text-xs text-gray-500">No open positions yet.</p>';
+        } else {
+          openListEl.innerHTML = openOrders.map((o) => {
+            const side = o.side || '';
+            const sideColor = side === 'BUY' ? '#75E063' : side === 'SELL' ? '#FF6B6B' : '#888';
+            const sideBg = side === 'BUY' ? 'rgba(117,224,99,0.10)' : 'rgba(255,107,107,0.10)';
+            const ageSec = Math.round(o.age_seconds || 0);
+            const ageMin = Math.floor(ageSec / 60);
+            const ageRem = ageSec % 60;
+            const ageStr = ageMin > 0 ? ageMin + 'm ' + ageRem + 's' : ageSec + 's';
+            const ageColor = ageSec > 240 ? '#FF6B6B' : ageSec > 120 ? '#FFD700' : '#75E063';
+            const tf = o.timeframe ? ' <span style="color:#888;font-size:9px;">[' + o.timeframe + ']</span>' : '';
+            const price = (o.price || 0).toFixed(6);
+            const qty = (o.qty || 0).toFixed(6);
+            const sl = (o.sl || 0).toFixed(6);
+            const tp = (o.tp || 0).toFixed(6);
+            const orderId = o.order_id || 'n/a';
+            return '<div style="background:' + sideBg + ';border:1px solid ' + sideColor + ';border-radius:6px;padding:8px 10px;font-size:11px;display:flex;align-items:center;justify-content:space-between;gap:8px;">' +
+              '<div style="flex:1;">' +
+                '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">' +
+                  '<span style="background:' + sideColor + ';color:#0B120E;padding:2px 6px;border-radius:3px;font-weight:bold;font-size:10px;">' + side + '</span>' +
+                  '<span style="color:#fff;font-weight:bold;">' + (o.symbol || '?') + '</span>' +
+                  tf +
+                  '<span style="color:#888;margin-left:6px;">qty: ' + qty + '</span>' +
+                '</div>' +
+                '<div style="color:#888;font-size:10px;">' +
+                  'entry: ' + price + ' · sl: ' + sl + ' · tp: ' + tp +
+                '</div>' +
+              '</div>' +
+              '<div style="text-align:right;">' +
+                '<div style="color:' + ageColor + ';font-weight:bold;">' + ageStr + '</div>' +
+                '<div style="color:#666;font-size:9px;">' + orderId + '</div>' +
+              '</div>' +
+            '</div>';
+          }).join('');
+        }
+      }
       if (state.current_model) {
         document.getElementById('active-model-name').textContent = state.resolved_model ? `${state.current_model} (${state.resolved_model})` : state.current_model;
       }
