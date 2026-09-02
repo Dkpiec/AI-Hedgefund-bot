@@ -9,7 +9,4 @@ pydantic>=2.9.0
 python-dotenv>=1.0.0
 streamlit>=1.30.0
 httpx>=0.27.0
-
-# MetaTrader5 only installs on Windows/macOS (native client lib).
-# Skipped on Linux/Render/Streamlit Cloud — bot runs in paper mode there.
-MetaTrader5>=5.0.45 ; sys_platform == "win32" or sys_platform == "darwin"
+python-binance>=1.0.19

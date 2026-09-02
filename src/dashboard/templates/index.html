@@ -76,12 +76,14 @@
       <span id="status-label" class="text-sm text-gray-400">IDLE</span>
     </div>
     <div class="flex items-center gap-3">
-      <select id="interval-select" class="bg-black border border-lime-500 text-lime-400 px-3 py-2 rounded">
-        <option value="30">30 sec</option>
-        <option value="60">1 min</option>
-        <option value="300">5 min</option>
-        <option value="3600">1 hour</option>
+      <select id="scan-interval-select" class="bg-black border border-lime-500 text-lime-400 px-3 py-2 rounded">
+        <option value="1m">1 min</option>
+        <option value="5m">5 min</option>
+        <option value="15m">15 min</option>
+        <option value="30m">30 min</option>
+        <option value="1h" selected>1 hour</option>
       </select>
+      <span class="text-xs text-gray-500" id="chart-tf-label">Chart: 1h</span>
       <button id="toggle-btn" class="neon-btn">▶ Initialize Engine</button>
     </div>
   </header>
@@ -356,11 +358,28 @@
 
   document.getElementById('toggle-btn').addEventListener('click', async () => {
     const state = await (await fetch('/api/status')).json();
-    const interval = document.getElementById('interval-select').value;
+    const interval = document.getElementById('scan-interval-select').value;
+    // First, set the scan interval on the server
+    await fetch('/api/scan-interval', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({interval: interval}),
+    });
+    // Then start/stop the engine
     await fetch('/api/control', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: state.is_running ? 'stop' : 'start', interval: parseInt(interval)}),
+      body: JSON.stringify({action: state.is_running ? 'stop' : 'start'}),
+    });
+  });
+
+  // Live scan interval changes while the bot is running
+  document.getElementById('scan-interval-select').addEventListener('change', async (e) => {
+    const interval = e.target.value;
+    await fetch('/api/scan-interval', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({interval: interval}),
     });
   });
 
