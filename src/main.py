@@ -170,14 +170,9 @@ async def trading_loop():
             if not bot_state["is_running"]:
                 break
             try:
-                # Fetch market data (lazy MT5 import)
-                try:
-                    fetch_multi_timeframe_data, _ = _mt5()
-                    market_data = fetch_multi_timeframe_data(symbol)
-                except (ImportError, ModuleNotFoundError):
-                    bot_state["last_logic"] = f"MT5 not installed — running in stub mode for {symbol}"
-                    await asyncio.sleep(2)
-                    continue
+                # Fetch market data (uses MT5 if available, paper generator on cloud/Linux)
+                from data.data_engine import fetch_multi_timeframe_data
+                market_data = fetch_multi_timeframe_data(symbol)
                 if not market_data:
                     bot_state["last_logic"] = f"No data for {symbol}"
                     continue
@@ -188,7 +183,8 @@ async def trading_loop():
                 bot_state["last_confidence"] = decision.get("confidence_score", 0)
                 bot_state["last_signal"] = decision.get("signal", "HOLD")
                 bot_state["last_symbol"] = symbol
-                bot_state["equity"] = market_data.get("equity", 0)
+                if not market_data.get("paper_mode"):
+                    bot_state["equity"] = market_data.get("equity", bot_state["balance"])
 
                 # Execute if BUY/SELL
                 if decision["signal"] in ("BUY", "SELL"):
