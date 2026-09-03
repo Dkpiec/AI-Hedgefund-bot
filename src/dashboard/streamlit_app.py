@@ -9,7 +9,7 @@ Usage:
   streamlit run src/dashboard/streamlit_app.py
 
 Env vars:
-  API_BASE — FastAPI backend URL (default https://ai-hedgefund-api-hp2i.onrender.com)
+  API_BASE — FastAPI backend URL (default http://ai-hedgefund.161.118.184.188.sslip.io)
              Override via Streamlit secrets for local dev.
 """
 import os
@@ -133,8 +133,7 @@ def _is_hard_error(s):
 if _is_hard_error(state):
     st.error("❌ Cannot reach the trading backend right now.")
     st.caption(
-        "The backend may be starting up (Render free tier cold-starts can take 30–60s) "
-        "or the API_BASE Streamlit secret may be misconfigured. "
+        "The backend may be starting up or the API_BASE Streamlit secret may be misconfigured. "
         "Click below to retry, or wait — the live panel auto-rechecks every 30s."
     )
     c1, c2 = st.columns(2)
@@ -143,7 +142,7 @@ if _is_hard_error(state):
             st.cache_data.clear()
             st.rerun()
     with c2:
-        st.link_button("Open backend", url="https://ai-hedgefund-api-hp2i.onrender.com/api/status", use_container_width=True)
+        st.link_button("Open backend", url=f"{API_BASE}/api/status", use_container_width=True)
     st.stop()
 
 # Top status row (rendered by the live_stats fragment below for auto-refresh)
