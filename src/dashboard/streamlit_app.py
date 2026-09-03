@@ -256,20 +256,21 @@ def live_panel():
         st.metric("Last Symbol", state.get("last_symbol") or "—")
     with col4:
         started = state.get("started_at") or "—"
+        started_time = started
+        started_date = ""
         if started != "—":
             try:
-                started = (
-                    pd.Timestamp(started)
-                    .tz_localize("UTC")
-                    .tz_convert("Asia/Kolkata")
-                    .strftime("%Y-%m-%d %H:%M:%S")
-                )
+                ts = pd.Timestamp(started)
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize("UTC")
+                ts_ist = ts.tz_convert("Asia/Kolkata")
+                started_time = ts_ist.strftime("%H:%M:%S")
+                started_date = ts_ist.strftime("%d %b %Y")
             except Exception:
-                try:
-                    started = datetime.fromisoformat(started).strftime("%H:%M:%S")
-                except Exception:
-                    pass
-        st.metric("Started At (IST)", started)
+                started_time = started
+        st.metric("Started At", f"{started_time} IST")
+        if started_date:
+            st.caption(started_date)
 
     st.subheader("🧠 AI Logic")
     st.info(state.get("last_logic", "Bot idle."))
@@ -321,43 +322,56 @@ def live_panel():
         st.dataframe(df[cols], use_container_width=True, hide_index=True)
 
     # Equity curve
-    # Only CLOSED trades have balance_after (open trades are "PLACED" with
-    # no realized PnL yet). Build the curve from closed trades; show a
-    # placeholder with current equity + open position count while we wait.
-    trades_list = state.get("trade_history") or []
-    if not isinstance(trades_list, list):
-        trades_list = []
-    closed_trades = [t for t in trades_list if isinstance(t, dict) and t.get("status") in ("TP_HIT", "SL_HIT")]
-    open_trades = [t for t in trades_list if isinstance(t, dict) and t.get("status") not in ("TP_HIT", "SL_HIT")]
-    st.header("📈 Equity Curve")
+        # Show realised PnL curve: starting_balance + cumulative sum of pnl from
+        # closed trades sorted by time. If we have closed trades, also append the
+        # current equity (realised + unrealised) as the latest point.
+        trades_list = state.get("trade_history") or []
+        if not isinstance(trades_list, list):
+            trades_list = []
+        closed_trades = [t for t in trades_list if isinstance(t, dict) and t.get("status") in ("TP_HIT", "SL_HIT")]
+        open_trades = [t for t in trades_list if isinstance(t, dict) and t.get("status") not in ("TP_HIT", "SL_HIT")]
+        st.header("📈 Equity Curve")
 
-    if closed_trades:
-        eq_df = pd.DataFrame(closed_trades)
-        if "time" in eq_df.columns:
-            eq_df["time"] = pd.to_datetime(eq_df["time"], utc=True).dt.tz_convert("Asia/Kolkata")
-            eq_df = eq_df.sort_values("time")
-        if "balance_after" in eq_df.columns:
-            eq_plot = eq_df.set_index("time")[["balance_after"]].rename(
-                columns={"balance_after": "Equity ($)"}
-            )
-            st.line_chart(eq_plot, height=300)
-            st.caption(f"{len(closed_trades)} closed trade(s) plotted. {len(open_trades)} open.")
+        if closed_trades:
+            # Build realised equity curve from closed trades
+            df = pd.DataFrame(closed_trades)
+            if "time" in df.columns:
+                df["time"] = pd.to_datetime(df["time"], utc=True).dt.tz_convert("Asia/Kolkata")
+                df = df.sort_values("time")
+            # Each closed trade has a realised pnl field
+            if "pnl" in df.columns:
+                df["pnl"] = pd.to_numeric(df["pnl"], errors="coerce").fillna(0.0)
+                starting = float(state.get("starting_balance") or 0)
+                df["cum_pnl"] = df["pnl"].cumsum()
+                df["equity"] = starting + df["cum_pnl"]
+                # Optional: append current equity as latest point
+                current_equity = float(state.get("equity") or state.get("balance") or starting)
+                now = pd.Timestamp.utcnow().tz_convert("Asia/Kolkata")
+                # Avoid duplicate timestamps
+                if df["time"].iloc[-1] != now:
+                    df = pd.concat([
+                        df,
+                        pd.DataFrame([{"time": now, "equity": current_equity}])
+                    ], ignore_index=True)
+                eq_plot = df.set_index("time")[["equity"]].rename(columns={"equity": "Equity ($)"})
+                st.line_chart(eq_plot, height=300)
+                st.caption(f"{len(closed_trades)} closed trade(s) plotted. {len(open_trades)} open.")
+            else:
+                st.info("Closed trades recorded but missing `pnl`.")
         else:
-            st.info("Closed trades recorded but missing `balance_after`.")
-    else:
-        # No closed trades yet — show current equity vs starting balance as a
-        # single-point chart so the section isn't empty.
-        starting = float(state.get("starting_balance") or 0)
-        current = float(state.get("equity") or state.get("balance") or starting)
-        placeholder = pd.DataFrame(
-            {"Equity ($)": [starting, current]},
-            index=pd.to_datetime([datetime.utcnow() - pd.Timedelta(seconds=1), datetime.utcnow()]),
-        )
-        st.line_chart(placeholder, height=300)
-        st.info(
-            f"No closed trades yet — {len(open_trades)} open position(s). "
-            "Curve will populate as trades close (TP/SL hit)."
-        )
+            # No closed trades yet — show current equity vs starting balance as a
+            # single-point chart so the section isn't empty.
+            starting = float(state.get("starting_balance") or 0)
+            current = float(state.get("equity") or state.get("balance") or starting)
+            placeholder = pd.DataFrame(
+                {"Equity ($)": [starting, current]},
+                index=pd.to_datetime([datetime.utcnow() - pd.Timedelta(seconds=1), datetime.utcnow()]),
+            )
+            st.line_chart(placeholder, height=300)
+            st.info(
+                f"No closed trades yet — {len(open_trades)} open position(s). "
+                "Curve will populate as trades close (TP/SL hit)."
+            )
 
     st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')} IST (auto, every 30s)")
 
