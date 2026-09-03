@@ -55,18 +55,19 @@ st.markdown("""
 # exactly when we want a fresh fetch.
 # ============================================================================
 @st.cache_data(ttl=30)
-def fetch_status():
+def fetch_status() -> dict:
     try:
         r = requests.get(f"{API_BASE}/api/status", timeout=5)
         if r.status_code == 200:
             return r.json()
         if r.status_code == 429:
-            return {"_rate_limited": True, "error": "Render rate-limited; retrying next tick."}
-        if r.status_code >= 500:
-            return {"_server_error": True, "error": f"Render returned {r.status_code}; retrying next tick."}
-        return {"error": f"HTTP {r.status_code} from backend."}
-    except Exception as e:
-        return {"error": str(e)}
+            return {"_transient": True, "error": "Backend is busy; will retry next tick."}
+        if 500 <= r.status_code < 600:
+            return {"_transient": True, "error": f"Backend returned {r.status_code}; will retry next tick."}
+        # 4xx — backend is up but the request is bad. Don't treat as connection error.
+        return {"_transient": True, "error": f"Backend returned {r.status_code}."}
+    except requests.exceptions.RequestException:
+        return {"_disconnected": True, "error": "Backend not reachable from this network."}
 
 
 @st.cache_data(ttl=300)  # model list rarely changes; 5 min is fine
@@ -92,18 +93,18 @@ def post(path, payload=None):
 st.title("⚡ AI HEDGE FUND — STREAMLIT CONSOLE")
 state = fetch_status()
 
-# Only hard-stop on a *connection* error (no dict, or a dict that says "error"
-# but isn't a rate-limit / 5xx transient). Transient 429/503 keeps the page
-# up so the user sees a "retrying" message instead of a permanent failure.
+# Only hard-stop on a *connection* error (no dict, or a dict flagged
+# _disconnected). Transient 429 / 503 / 4xx keeps the page up so the
+# user sees a soft "retrying" message inside the live panel.
 def _is_hard_error(s):
     if not s or not isinstance(s, dict):
         return True
-    if s.get("_rate_limited") or s.get("_server_error"):
-        return False
-    return "error" in s
+    return bool(s.get("_disconnected"))
 
 if _is_hard_error(state):
-    st.error(f"❌ Cannot reach FastAPI backend at {API_BASE}. Start it or set API_BASE in Streamlit secrets.")
+    st.error("❌ Cannot reach the trading backend right now. "
+             "Check the API service is running and that the API_BASE "
+             "Streamlit secret is set correctly.")
     st.stop()
 
 # Top status row (rendered by the live_stats fragment below for auto-refresh)
@@ -114,7 +115,11 @@ if _is_hard_error(state):
 # ============================================================================
 st.sidebar.header("🎛️ Controls")
 
-if state.get("is_running"):
+if state.get("_transient") or not isinstance(state, dict):
+    st.sidebar.info("⏳ Waiting for backend…")
+    st.sidebar.caption(state.get("error", "No data yet") if isinstance(state, dict) else "")
+    st.sidebar.caption("Controls will unlock on the next refresh (≤30s).")
+elif state.get("is_running"):
     if st.sidebar.button("■ Stop Engine", use_container_width=True):
         post("/api/control", {"action": "stop", "interval": state.get("interval", 30)})
         st.cache_data.clear()
@@ -172,17 +177,14 @@ st.sidebar.caption("Refresh: every 30 seconds (background)")
 @st.fragment(run_every="30s")
 def live_panel():
     state = fetch_status()
-    if not state:
-        st.warning(f"⏳ No response from backend at {API_BASE}; will retry in 30s.")
+    if not state or not isinstance(state, dict):
+        st.warning("⏳ No response from backend; will retry in 30s.")
         return
-    if state.get("_rate_limited"):
-        st.warning("⏳ Render is rate-limiting requests; backing off 30s.")
+    if state.get("_transient"):
+        st.warning(f"⏳ {state.get('error', 'Backend is busy')}; will retry in 30s.")
         return
-    if state.get("_server_error"):
-        st.warning(f"⏳ {state.get('error', 'Backend error')}; will retry in 30s.")
-        return
-    if "error" in state:
-        st.error(f"❌ Cannot reach FastAPI backend at {API_BASE}. Start it or set API_BASE in Streamlit secrets.")
+    if state.get("_disconnected"):
+        st.error("❌ Cannot reach the trading backend. Check the API service is running.")
         return
 
     # --- Top status row (auto-refreshing) ---
