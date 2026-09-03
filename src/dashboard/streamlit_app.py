@@ -52,11 +52,19 @@ st.markdown("""
 
 # ============================================================================
 # HELPERS — no cache; we want fresh data on every fragment rerun.
+# Treat 429 (rate limited) and 5xx (Render cold-starting) as transient —
+# the fragment will retry on the next tick instead of showing an error.
 # ============================================================================
 def fetch_status():
     try:
         r = requests.get(f"{API_BASE}/api/status", timeout=5)
-        return r.json() if r.status_code == 200 else None
+        if r.status_code == 200:
+            return r.json()
+        if r.status_code == 429:
+            return {"_rate_limited": True, "error": "Render rate-limited; retrying next tick."}
+        if r.status_code >= 500:
+            return {"_server_error": True, "error": f"Render returned {r.status_code}; retrying next tick."}
+        return {"error": f"HTTP {r.status_code} from backend."}
     except Exception as e:
         return {"error": str(e)}
 
@@ -84,7 +92,17 @@ def post(path, payload=None):
 st.title("⚡ AI HEDGE FUND — STREAMLIT CONSOLE")
 state = fetch_status()
 
-if not state or "error" in state:
+# Only hard-stop on a *connection* error (no dict, or a dict that says "error"
+# but isn't a rate-limit / 5xx transient). Transient 429/503 keeps the page
+# up so the user sees a "retrying" message instead of a permanent failure.
+def _is_hard_error(s):
+    if not s or not isinstance(s, dict):
+        return True
+    if s.get("_rate_limited") or s.get("_server_error"):
+        return False
+    return "error" in s
+
+if _is_hard_error(state):
     st.error(f"❌ Cannot reach FastAPI backend at {API_BASE}. Start it or set API_BASE in Streamlit secrets.")
     st.stop()
 
@@ -99,24 +117,22 @@ st.sidebar.header("🎛️ Controls")
 if state.get("is_running"):
     if st.sidebar.button("■ Stop Engine", use_container_width=True):
         post("/api/control", {"action": "stop", "interval": state.get("interval", 30)})
-        st.cache_data.clear()
         st.rerun()
 else:
     if st.sidebar.button("▶ Initialize Engine", use_container_width=True):
         post("/api/control", {"action": "start", "interval": 30})
-        st.cache_data.clear()
         st.rerun()
 
 st.sidebar.subheader("Interval")
+_current_interval = state.get("interval") if isinstance(state, dict) else 30
 interval = st.sidebar.selectbox(
     "Trading interval",
     [30, 60, 300, 3600],
-    index=[30, 60, 300, 3600].index(state.get("interval", 30)) if state.get("interval") in [30,60,300,3600] else 0,
+    index=[30, 60, 300, 3600].index(_current_interval) if _current_interval in [30, 60, 300, 3600] else 0,
     format_func=lambda x: {30: "30 sec", 60: "1 min", 300: "5 min", 3600: "1 hour"}[x],
 )
 if interval != state.get("interval"):
     post("/api/control", {"action": "start", "interval": interval})
-    st.cache_data.clear()
     st.rerun()
 
 st.sidebar.subheader("AI Model")
@@ -128,32 +144,41 @@ if current not in free_models:
 selected = st.sidebar.selectbox("Model", free_models, index=free_models.index(current) if current in free_models else 0)
 if st.sidebar.button("Apply Model"):
     post("/api/model", {"model": selected})
-    st.cache_data.clear()
     st.rerun()
 st.sidebar.caption(f"Active: **{state.get('resolved_model', current)}**")
 
 if st.sidebar.button("🗑️ Clear Trade History"):
     post("/api/reset")
-    st.cache_data.clear()
     st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.caption("Backend: `Render FastAPI`")
-st.sidebar.caption("Refresh: every 10 seconds (background)")
+st.sidebar.caption("Refresh: every 30 seconds (background)")
 
 # ============================================================================
-# LIVE PANEL — auto-refreshes every 10s in place, without dimming the page
+# LIVE PANEL — auto-refreshes every 30s in place, without dimming the page
 # or losing focus. streamlit-autorefresh's component is placed at the top of
-# a fragment so only this section reruns.
+# a fragment so only this section reruns. Polling at 30s (not 10s) avoids
+# hitting Render's free-tier rate limiter.
 # ============================================================================
 @st.fragment
 def live_panel():
-    # 10_000 ms = 10s. When called inside a fragment, this triggers a
-    # fragment-only rerun — no full-page rerun, no "Running script..." overlay.
-    st_autorefresh(interval=10_000, key="live_panel_refresh")
+    # 30_000 ms = 30s. Slower polling avoids hitting Render's free-tier
+    # rate limiter (429) when multiple users (or one user across
+    # Streamlit Cloud's egress IPs) are watching the dashboard.
+    st_autorefresh(interval=30_000, key="live_panel_refresh")
 
     state = fetch_status()
-    if not state or "error" in state:
+    if not state:
+        st.warning(f"⏳ No response from backend at {API_BASE}; will retry in 30s.")
+        return
+    if state.get("_rate_limited"):
+        st.warning("⏳ Render is rate-limiting requests; backing off 30s.")
+        return
+    if state.get("_server_error"):
+        st.warning(f"⏳ {state.get('error', 'Backend error')}; will retry in 30s.")
+        return
+    if "error" in state:
         st.error(f"❌ Cannot reach FastAPI backend at {API_BASE}. Start it or set API_BASE in Streamlit secrets.")
         return
 
@@ -277,6 +302,6 @@ def live_panel():
         else:
             st.info("Equity curve will appear after the first trade.")
 
-    st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')} IST (auto, every 10s)")
+    st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')} IST (auto, every 30s)")
 
 live_panel()
