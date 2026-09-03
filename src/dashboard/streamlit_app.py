@@ -46,6 +46,17 @@ st.markdown("""
     [data-testid="stMetricDelta"] { color: #FFD700; }
     .stDataFrame { background-color: #0B120E; }
     div[data-baseweb="select"] { background-color: #000; }
+    /* Font-size reduction: render at 80% of default across the dashboard */
+    html, body, [data-testid="stAppViewContainer"], .main, .block-container {
+        font-size: 0.8em !important;
+    }
+    [data-testid="stMetricValue"] { font-size: 0.8em !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.8em !important; }
+    [data-testid="stMetricDelta"]  { font-size: 0.8em !important; }
+    [data-testid="stHeader"] { font-size: 0.8em !important; }
+    h1 { font-size: 1.6em !important; }
+    h2 { font-size: 1.3em !important; }
+    h3 { font-size: 1.1em !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -216,33 +227,59 @@ def live_panel():
         return
 
     # --- Top status row (auto-refreshing) ---
-    c1, c2, c3, c4, c5 = st.columns(5)
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1:
         status_label = "🟢 RUNNING" if state.get("is_running") else "🔴 IDLE"
         st.metric("Engine", status_label)
     with c2:
         bal = float(state.get("balance") or 0)
-        start = float(state.get("starting_balance") or 0)
-        pnl = float(state.get("pnl") or 0)
-        delta_pct = float(state.get("pnl_pct") or 0)
-        sign = "+" if pnl >= 0 else ""
-        st.metric(
-            "Balance",
-            f"${bal:,.2f}",
-            delta=f"{sign}${pnl:,.2f} ({sign}{delta_pct:.2f}%)",
-        )
+        st.metric("Balance Amount", f"${bal:,.2f}")
     with c3:
+        equity = float(state.get("equity") or bal)
+        st.metric("Equity", f"${equity:,.2f}")
+    with c4:
+        # Total portfolio balance = equity + notional tied up in open positions
+        # (which is already in `equity` since equity = balance + unrealized PnL
+        # and balance = free cash after notional deduction). Show as
+        # starting_balance + realized PnL + unrealized open PnL.
+        starting = float(state.get("starting_balance") or 0)
+        # sum of realized pnl from closed trades
+        realized_pnl = sum(
+            float(t.get("pnl", 0))
+            for t in (state.get("trade_history") or [])
+            if isinstance(t, dict) and t.get("status") in ("TP_HIT", "SL_HIT")
+            and t.get("pnl") is not None
+        )
+        # unrealized PnL = equity - balance
+        unrealized_pnl = equity - bal
+        total_portfolio = starting + realized_pnl + unrealized_pnl
+        st.metric("Total Portfolio", f"${total_portfolio:,.2f}")
+    with c5:
+        # Realized P&L only — sum of closed trades' pnl
+        sign = "+" if realized_pnl >= 0 else ""
+        realized_pct = (realized_pnl / starting * 100) if starting else 0.0
+        st.metric(
+            "Total P&L (Realised)",
+            f"{sign}${realized_pnl:,.2f}",
+            delta=f"{sign}{realized_pct:.2f}%",
+        )
+    with c6:
         sig = state.get("last_signal", "HOLD")
         sig_color = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(sig, "⚪")
         st.metric("Signal", f"{sig_color} {sig}")
-    with c4:
+    # moved confidence + mode into a compact secondary row
+    c7, c8, c9 = st.columns([1, 1, 4])
+    with c7:
         st.metric("Confidence", f"{state.get('last_confidence', 0)}%")
-    with c5:
+    with c8:
         st.metric("Mode", "PAPER" if state.get("paper_mode") else "LIVE")
-    st.caption(
-        f"Starting balance: **${start:,.2f}** | Current: **${bal:,.2f}** | "
-        f"Equity: **${state.get('equity', bal):,.2f}**"
-    )
+    with c9:
+        st.caption(
+            f"Starting balance: **${starting:,.2f}** | "
+            f"Open positions: **{len(state.get('open_orders', []))}** | "
+            f"Realised PnL: **${realized_pnl:,.2f}** | "
+            f"Unrealised PnL: **${unrealized_pnl:,.2f}**"
+        )
     st.markdown("---")
 
     # --- Detailed stats ---
