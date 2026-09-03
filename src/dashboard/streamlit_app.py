@@ -46,17 +46,17 @@ st.markdown("""
     [data-testid="stMetricDelta"] { color: #FFD700; }
     .stDataFrame { background-color: #0B120E; }
     div[data-baseweb="select"] { background-color: #000; }
-    /* Font-size reduction: render at 80% of default across the dashboard */
+    /* Font-size: 120% of Streamlit default (user requested +50% from the 80% we shipped) */
     html, body, [data-testid="stAppViewContainer"], .main, .block-container {
-        font-size: 0.8em !important;
+        font-size: 1.2em !important;
     }
-    [data-testid="stMetricValue"] { font-size: 0.8em !important; }
-    [data-testid="stMetricLabel"] { font-size: 0.8em !important; }
-    [data-testid="stMetricDelta"]  { font-size: 0.8em !important; }
-    [data-testid="stHeader"] { font-size: 0.8em !important; }
-    h1 { font-size: 1.6em !important; }
-    h2 { font-size: 1.3em !important; }
-    h3 { font-size: 1.1em !important; }
+    [data-testid="stMetricValue"] { font-size: 1.2em !important; }
+    [data-testid="stMetricLabel"] { font-size: 1.2em !important; }
+    [data-testid="stMetricDelta"]  { font-size: 1.2em !important; }
+    [data-testid="stHeader"] { font-size: 1.2em !important; }
+    h1 { font-size: 2.4em !important; }
+    h2 { font-size: 1.95em !important; }
+    h3 { font-size: 1.65em !important; }
 </style>
 """, unsafe_allow_html=True)
 
