@@ -235,24 +235,25 @@ def live_panel():
         bal = float(state.get("balance") or 0)
         st.metric("Balance Amount", f"${bal:,.2f}")
     with c3:
-        equity = float(state.get("equity") or bal)
-        st.metric("Equity", f"${equity:,.2f}")
+        # Equity = total notional deployed in open positions. This is the
+        # amount currently working for us in active trades. NOT balance + unrealized
+        # PnL (we don't book open P&L) and NOT the starting balance.
+        orders = state.get("open_orders", []) or []
+        equity_deployed = sum(
+            float(o.get("notional", 0)) for o in orders if isinstance(o, dict)
+        )
+        st.metric("Equity", f"${equity_deployed:,.2f}")
     with c4:
-        # Total portfolio balance = equity + notional tied up in open positions
-        # (which is already in `equity` since equity = balance + unrealized PnL
-        # and balance = free cash after notional deduction). Show as
-        # starting_balance + realized PnL + unrealized open PnL.
         starting = float(state.get("starting_balance") or 0)
-        # sum of realized pnl from closed trades
+        # sum of realized pnl from closed trades only (no unrealized open PnL)
         realized_pnl = sum(
             float(t.get("pnl", 0))
             for t in (state.get("trade_history") or [])
             if isinstance(t, dict) and t.get("status") in ("TP_HIT", "SL_HIT")
             and t.get("pnl") is not None
         )
-        # unrealized PnL = equity - balance
-        unrealized_pnl = equity - bal
-        total_portfolio = starting + realized_pnl + unrealized_pnl
+        # Total portfolio = starting balance + realized PnL (the real account value)
+        total_portfolio = starting + realized_pnl
         st.metric("Total Portfolio", f"${total_portfolio:,.2f}")
     with c5:
         # Realized P&L only — sum of closed trades' pnl
@@ -274,11 +275,17 @@ def live_panel():
     with c8:
         st.metric("Mode", "PAPER" if state.get("paper_mode") else "LIVE")
     with c9:
+        deployed = sum(
+            float(o.get("notional", 0))
+            for o in (state.get("open_orders") or [])
+            if isinstance(o, dict)
+        )
         st.caption(
-            f"Starting balance: **${starting:,.2f}** | "
-            f"Open positions: **{len(state.get('open_orders', []))}** | "
+            f"Starting: **${starting:,.2f}** | "
+            f"Free: **${bal:,.2f}** | "
+            f"Deployed: **${deployed:,.2f}** | "
             f"Realised PnL: **${realized_pnl:,.2f}** | "
-            f"Unrealised PnL: **${unrealized_pnl:,.2f}**"
+            f"Total: **${starting + realized_pnl:,.2f}**"
         )
     st.markdown("---")
 
