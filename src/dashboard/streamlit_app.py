@@ -54,20 +54,36 @@ st.markdown("""
 # 30s matches the autorefresh interval, so the cache always misses
 # exactly when we want a fresh fetch.
 # ============================================================================
-@st.cache_data(ttl=30)
-def fetch_status() -> dict:
+def _do_fetch_status() -> dict:
+    """Raw fetch with no caching. Returns either a real status dict
+    (on 200) or a sentinel dict with _transient / _disconnected."""
     try:
-        r = requests.get(f"{API_BASE}/api/status", timeout=5)
+        r = requests.get(f"{API_BASE}/api/status", timeout=10)
         if r.status_code == 200:
             return r.json()
         if r.status_code == 429:
             return {"_transient": True, "error": "Backend is busy; will retry next tick."}
         if 500 <= r.status_code < 600:
             return {"_transient": True, "error": f"Backend returned {r.status_code}; will retry next tick."}
-        # 4xx — backend is up but the request is bad. Don't treat as connection error.
         return {"_transient": True, "error": f"Backend returned {r.status_code}."}
     except requests.exceptions.RequestException:
         return {"_disconnected": True, "error": "Backend not reachable from this network."}
+
+
+@st.cache_data(ttl=25)
+def fetch_status() -> dict:
+    """Cached fetch — used by the auto-refreshing live panel. 25s TTL
+    is slightly less than the 30s fragment tick so the cache always
+    misses when we want fresh data."""
+    return _do_fetch_status()
+
+
+def fetch_status_fresh() -> dict:
+    """Bypass the cache. Used on cold load (top of page) and on user
+    actions that MUST see current state (Initialize / Stop / Apply /
+    Clear), so a previously-cached 'disconnected' from a transient
+    cold-start doesn't keep the user locked out."""
+    return _do_fetch_status()
 
 
 @st.cache_data(ttl=300)  # model list rarely changes; 5 min is fine
@@ -91,7 +107,9 @@ def post(path, payload=None):
 # HEADER
 # ============================================================================
 st.title("⚡ AI HEDGE FUND — STREAMLIT CONSOLE")
-state = fetch_status()
+# Top-level uses the uncached fetch so a previous session's stale
+# 'disconnected' result doesn't lock the user out across reloads.
+state = fetch_status_fresh()
 
 # Only hard-stop on a *connection* error (no dict, or a dict flagged
 # _disconnected). Transient 429 / 503 / 4xx keeps the page up so the
@@ -102,9 +120,19 @@ def _is_hard_error(s):
     return bool(s.get("_disconnected"))
 
 if _is_hard_error(state):
-    st.error("❌ Cannot reach the trading backend right now. "
-             "Check the API service is running and that the API_BASE "
-             "Streamlit secret is set correctly.")
+    st.error("❌ Cannot reach the trading backend right now.")
+    st.caption(
+        "The backend may be starting up (Render free tier cold-starts can take 30–60s) "
+        "or the API_BASE Streamlit secret may be misconfigured. "
+        "Click below to retry, or wait — the live panel auto-rechecks every 30s."
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🔄 Retry now", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    with c2:
+        st.link_button("Open backend", url="https://ai-hedgefund-api-hp2i.onrender.com/api/status", use_container_width=True)
     st.stop()
 
 # Top status row (rendered by the live_stats fragment below for auto-refresh)
