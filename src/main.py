@@ -105,6 +105,15 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "dashboard" / "templates"))
 @app.on_event("startup")
 async def startup_event():
     try:
+        # Guarantee default model & interval if missing/null from legacy state
+        if not bot_state.get("current_model"):
+            bot_state["current_model"] = OPENROUTER_MODEL
+        if not bot_state.get("resolved_model"):
+            bot_state["resolved_model"] = OPENROUTER_MODEL
+        if not bot_state.get("scan_interval"):
+            bot_state["scan_interval"] = DEFAULT_SCAN_INTERVAL
+            bot_state["interval"] = SCAN_INTERVALS.get(DEFAULT_SCAN_INTERVAL, 3600)
+
         qualified = filter_universe()
         bot_state["universe"] = qualified
         print(f"[BOT] Universe after price+volume filter: {qualified}")

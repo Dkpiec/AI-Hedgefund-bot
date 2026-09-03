@@ -89,8 +89,11 @@ def load_bot_state(into: Dict[str, Any]) -> bool:
     except Exception as e:
         print(f"[STATE_STORE] state.json unreadable, ignoring: {e}", file=sys.stderr)
         return False
+    # Only restore non-None values so that in-process defaults (e.g.
+    # OPENROUTER_MODEL, DEFAULT_SCAN_INTERVAL) are never overwritten with null.
     for k, v in snap.items():
-        into[k] = v
+        if v is not None:
+            into[k] = v
     return True
 
 
