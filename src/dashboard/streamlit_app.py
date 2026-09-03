@@ -176,10 +176,19 @@ with col4:
     started = state.get("started_at") or "—"
     if started != "—":
         try:
-            started = datetime.fromisoformat(started).strftime("%H:%M:%S")
+            # Backend returns naive UTC ISO strings; localize first, then convert
+            started = (
+                pd.Timestamp(started)
+                .tz_localize("UTC")
+                .tz_convert("Asia/Kolkata")
+                .strftime("%Y-%m-%d %H:%M:%S")
+            )
         except Exception:
-            pass
-    st.metric("Started At", started)
+            try:
+                started = datetime.fromisoformat(started).strftime("%H:%M:%S")
+            except Exception:
+                pass
+    st.metric("Started At (IST)", started)
 
 st.subheader("🧠 AI Logic")
 st.info(state.get("last_logic", "Bot idle."))
@@ -192,7 +201,11 @@ else:
     df = pd.DataFrame(trades)
     df = df.iloc[::-1]  # newest first
     if "time" in df.columns:
-        df["time"] = pd.to_datetime(df["time"]).dt.strftime("%H:%M:%S")
+        df["time"] = (
+            pd.to_datetime(df["time"], utc=True)
+            .dt.tz_convert("Asia/Kolkata")
+            .dt.strftime("%Y-%m-%d %H:%M:%S")
+        )
     if "price" in df.columns:
         df["price"] = df["price"].astype(float).round(5)
     if "sl" in df.columns:
@@ -200,8 +213,13 @@ else:
     if "tp" in df.columns:
         df["tp"] = df["tp"].astype(float).round(5)
 
+    # Show only the columns that actually exist in the trade dict
+    # (open trades don't have outcome/pnl/balance_after yet)
+    desired = ["time", "asset", "signal", "status", "outcome", "pnl",
+               "balance_after", "confidence", "price", "sl", "tp", "mode"]
+    cols = [c for c in desired if c in df.columns]
     st.dataframe(
-        df[["time", "asset", "signal", "outcome", "pnl", "balance_after", "confidence", "price", "sl", "tp", "mode"]],
+        df[cols],
         use_container_width=True,
         hide_index=True,
     )
