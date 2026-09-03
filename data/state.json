@@ -1,0 +1,12 @@
+{
+  "starting_balance": 200,
+  "balance": 200.0,
+  "pnl": 0.0,
+  "pnl_pct": 0.0,
+  "trade_history": [],
+  "cycles_completed": 0,
+  "current_model": "openrouter/free",
+  "resolved_model": "openrouter/free",
+  "scan_interval": "1h",
+  "interval": 3600
+}
