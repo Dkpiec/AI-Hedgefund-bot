@@ -212,6 +212,18 @@ async def status():
             bot_state["free"] = bal
             bot_state["balance"] = bal
             bot_state["equity"] = bal + unrealized
+        # PnL = realized only (sum of closed trades). Balance already reflects
+        # notional deductions for open positions, so balance - starting_balance
+        # would incorrectly show deployed capital as a loss.
+        realized_pnl = sum(
+            float(t.get("pnl", 0))
+            for t in bot_state.get("trade_history", [])
+            if isinstance(t, dict)
+            and t.get("status") in ("TP_HIT", "SL_HIT")
+            and t.get("pnl") is not None
+        )
+        bot_state["pnl"] = realized_pnl
+        bot_state["pnl_pct"] = (realized_pnl / bot_state["starting_balance"] * 100) if bot_state["starting_balance"] else 0.0
         bot_state["pnl"] = bot_state["balance"] - bot_state["starting_balance"]
         bot_state["pnl_pct"] = (bot_state["pnl"] / bot_state["starting_balance"]) * 100
     except Exception:
