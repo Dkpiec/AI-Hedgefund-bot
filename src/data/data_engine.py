@@ -26,10 +26,11 @@ from config import (
 
 # Lazy import — binance package is heavy
 _client = None
+_public_client = None
 
 
 def _get_client():
-    """Lazy-initialize Binance client (testnet or mainnet)."""
+    """Lazy-initialize signed Binance client (testnet or mainnet). Requires API key."""
     global _client
     if _client is not None:
         return _client
@@ -40,7 +41,37 @@ def _get_client():
         _client = Client(BINANCE_API_KEY, BINANCE_API_SECRET, testnet=BINANCE_TESTNET)
         return _client
     except Exception as e:
-        print(f"[DATA] Binance client init failed: {e}")
+        print(f"[DATA] Signed Binance client init failed: {e}")
+        return None
+
+
+def _get_public_client():
+    """Lazy-initialize public Binance client (NO key needed).
+    Used for real forward testing: fetch live prices + klines from binance.com
+    without authentication. Always returns a client if the package imports.
+    """
+    global _public_client
+    if _public_client is not None:
+        return _public_client
+    try:
+        from binance.client import Client
+        _public_client = Client("", "")  # empty creds = public endpoints only
+        return _public_client
+    except Exception as e:
+        print(f"[DATA] Public Binance client init failed: {e}")
+        return None
+
+
+def get_live_ticker(symbol: str) -> Optional[float]:
+    """Fetch current price for a symbol from Binance public API. Returns None on failure."""
+    client = _get_public_client()
+    if client is None:
+        return None
+    try:
+        t = client.get_symbol_ticker(symbol=symbol)
+        return float(t.get("price", 0) or 0)
+    except Exception as e:
+        print(f"[DATA] Ticker error for {symbol}: {e}")
         return None
 
 
@@ -100,10 +131,14 @@ def filter_universe() -> List[str]:
 def fetch_multi_timeframe_data(symbol: str, timeframes: Optional[List[str]] = None) -> Optional[Dict]:
     """
     Fetch multiple timeframes for the given symbol.
+    Uses the public Binance client (no key needed) for forward testing.
+    Falls back to signed client if available, then to synthetic data.
+
     Returns dict: {symbol, timeframes: {tf: csv_string}, ask, paper_mode}
     """
     timeframes = timeframes or ["1h"]
-    client = _get_client()
+    # Prefer public client (no key, no account needed) for real forward testing
+    client = _get_public_client() or _get_client()
 
     if client is None:
         return _generate_paper_data(symbol, timeframes)
@@ -111,6 +146,8 @@ def fetch_multi_timeframe_data(symbol: str, timeframes: Optional[List[str]] = No
     try:
         ticker = client.get_symbol_ticker(symbol=symbol)
         ask = float(ticker.get("price", 0) or 0)
+        if ask <= 0:
+            raise ValueError(f"Non-positive ask for {symbol}")
     except Exception as e:
         print(f"[DATA] Ticker error for {symbol}: {e}")
         return _generate_paper_data(symbol, timeframes)

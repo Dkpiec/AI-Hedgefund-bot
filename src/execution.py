@@ -1,9 +1,17 @@
 """
-Execution Engine - Binance Spot Limit Order Executor
-=====================================================
-Places STRICT LIMIT orders only (no market orders).
-Auto-cancels unfilled limit orders after ORDER_TIMEOUT_SECONDS.
-Enforces 5% risk-per-trade and LOT_SIZE/price filters.
+Execution Engine - Paper + Binance Spot Forward-Testing Executor
+================================================================
+Two execution modes:
+
+1. PAPER (forward test): no API key. Every signal is tracked in OPEN_ORDERS,
+   filled instantly at the live ask price, and monitored for SL/TP hits
+   against real Binance public ticker prices. $200 starting balance, virtual.
+
+2. LIVE_LIMIT: signed Binance client places a real limit order on testnet
+   or mainnet, with the existing 5-min auto-cancel.
+
+SL/TP are computed from the entry price, not the limit ask, so the R:R
+ratio is exact. `check_paper_sl_tp()` is called by main.py every cycle.
 """
 import math
 import sys
@@ -17,21 +25,46 @@ from config import (
     BINANCE_API_SECRET,
     BINANCE_TESTNET,
     ORDER_TIMEOUT_SECONDS,
+    PAPER_BALANCE_FILE,
     RISK_PER_TRADE,
     SL_PERCENT,
+    STARTING_BALANCE,
     STRICT_LIMIT_ORDERS,
     TP_PERCENT,
 )
-from data.data_engine import get_account_info, get_symbol_info
+from data.data_engine import get_account_info, get_live_ticker, get_symbol_info
 
-# In-memory tracking of open orders: {order_id: {symbol, side, qty, price, placed_at, sl, tp}}
+# In-memory tracking of open orders: {order_id: {symbol, side, qty, price, placed_at, sl, tp, mode, ...}}
 OPEN_ORDERS: Dict[str, Dict] = {}
+
+# Per-order counter for paper mode order ids (PAPER-1, PAPER-2, ...)
+_paper_id_counter = [0]
+
+# Persisted virtual paper balance (USD). Lives in a file so it survives restarts.
+def _load_paper_balance() -> float:
+    try:
+        return float(PAPER_BALANCE_FILE.read_text().strip())
+    except Exception:
+        return float(STARTING_BALANCE)
+
+
+def _save_paper_balance(balance: float) -> None:
+    try:
+        PAPER_BALANCE_FILE.write_text(f"{balance:.6f}\n")
+    except Exception as e:
+        print(f"[EXEC] Could not persist paper balance: {e}")
+
+
+def get_paper_balance() -> float:
+    """Current virtual USDT balance (paper mode)."""
+    return _load_paper_balance()
+
 
 _client = None
 
 
 def _get_client():
-    """Lazy-initialize Binance client."""
+    """Lazy-initialize signed Binance client. Requires API key."""
     global _client
     if _client is not None:
         return _client
@@ -44,6 +77,11 @@ def _get_client():
     except Exception as e:
         print(f"[EXEC] Binance client init failed: {e}")
         return None
+
+
+def is_live_mode() -> bool:
+    """True only if a signed Binance client is available AND user wants real orders."""
+    return _get_client() is not None and STRICT_LIMIT_ORDERS
 
 
 def _round_step(value: float, step_size: float) -> float:
@@ -166,37 +204,202 @@ def execute_trade(symbol: str, signal: str, ask_price: float, decision: dict) ->
 
 
 def _success_paper(symbol: str, signal: str, ask_price: float, decision: dict) -> dict:
-    """Return a paper-mode success when no API key is set."""
-    limit_price = ask_price
-    if signal == "BUY":
-        sl = ask_price * (1 - SL_PERCENT)
-        tp = ask_price * (1 + TP_PERCENT)
+    """
+    Open a tracked paper position: filled instantly at the ask price.
+    The position lives in OPEN_ORDERS until SL or TP is hit (see check_paper_sl_tp).
+    Virtual USDT balance is deducted for the entry notional.
+
+    Position size uses the tiered schedule from config.get_position_size_for_balance:
+        balance $0–$400  →  $10 / trade
+        balance $400–$600  →  $20 / trade
+        +$10 / trade per +$200 in balance
+    """
+    if ask_price <= 0:
+        return {"success": False, "error": f"Invalid ask price for {symbol}"}
+
+    # Skip symbols whose unit price exceeds $2000 — too expensive for our capital base.
+    if ask_price > 2000.0:
+        return {"success": False, "error": f"Symbol {symbol} unit price ${ask_price:.2f} exceeds $2000 ceiling"}
+
+    from config import get_position_size_for_balance, get_risk_per_trade_for_balance, get_current_tier
+
+    free = _load_paper_balance()
+    if free <= 0:
+        return {"success": False, "error": "Paper balance is $0 — cannot open new position"}
+
+    # Tiered position sizing: every +$200 in balance → +$10 position size
+    target_value = get_position_size_for_balance(free)
+    # Cap target at what we can actually afford (leave a small buffer)
+    target_value = min(target_value, max(0.0, free - 0.01))
+
+    info = get_symbol_info(symbol)
+    step = info.get("stepSize", 0.0)
+
+    # Compute qty from the target dollar value
+    if step > 0 and ask_price > 0:
+        raw_qty = target_value / ask_price
+        qty = _round_step(raw_qty, step)
+        notional = qty * ask_price
     else:
-        sl = ask_price * (1 + SL_PERCENT)
-        tp = ask_price * (1 - TP_PERCENT)
+        qty = target_value / ask_price if ask_price > 0 else 0
+        notional = target_value
+
+    if notional < 10.0:
+        # Notional is below the $10 Binance minimum because rounding the qty DOWN
+        # to the step size dropped the dollar value under $10. Round the qty UP to
+        # the next step so the notional clears $10, but cap at what we can afford.
+        if step > 0 and ask_price > 0:
+            target_qty = 10.0 / ask_price  # qty needed for $10 exactly
+            bumped = (int(target_qty / step) + 1) * step  # always round UP
+            # Cap at what we can afford (leave 1 cent buffer)
+            max_affordable = (free - 0.01) / ask_price
+            max_qty = int(max_affordable / step) * step
+            qty = min(bumped, max_qty)
+            notional = qty * ask_price
+    if notional < 10.0:
+        return {"success": False, "error": f"Notional ${notional:.2f} below $10 minimum for {symbol} (free=${free:.2f})"}
+
+    # Track the risk-per-trade in the order record (for strategy evolution)
+    risk_per_trade = get_risk_per_trade_for_balance(free)
+    current_tier = get_current_tier(free)
+
+    # Deduct notional from virtual balance
+    new_balance = free - notional
+    _save_paper_balance(new_balance)
+
+    if signal == "BUY":
+        sl = round(ask_price * (1 - SL_PERCENT), 6)
+        tp = round(ask_price * (1 + TP_PERCENT), 6)
+    else:
+        sl = round(ask_price * (1 + SL_PERCENT), 6)
+        tp = round(ask_price * (1 - TP_PERCENT), 6)
+
+    _paper_id_counter[0] += 1
+    order_id = f"PAPER-{_paper_id_counter[0]}"
+    OPEN_ORDERS[order_id] = {
+        "symbol": symbol,
+        "side": signal,
+        "qty": qty,
+        "price": ask_price,
+        "sl": sl,
+        "tp": tp,
+        "placed_at": time.time(),
+        "filled_at": time.time(),
+        "logic": decision.get("logic", ""),
+        "confidence": decision.get("confidence_score", 0),
+        "timeframe": decision.get("timeframe", ""),
+        "mode": "PAPER",
+        "notional": notional,
+        "risk_per_trade": risk_per_trade,
+        "tier": current_tier,
+    }
     return {
         "success": True,
         "mode": "PAPER",
+        "order_id": order_id,
         "symbol": symbol,
         "signal": signal,
-        "price": limit_price,
-        "qty": 0.0,
+        "price": ask_price,
+        "qty": qty,
         "sl": sl,
         "tp": tp,
+        "notional": notional,
+        "risk_per_trade": risk_per_trade,
+        "tier": current_tier,
     }
+
+
+def check_paper_sl_tp() -> list:
+    """
+    For every open PAPER position, fetch the live ticker and check whether
+    SL or TP was hit. On hit, close the position: compute PnL, add notional
+    + PnL back to the virtual balance, append a closed-trade record to a
+    in-memory list (caller is responsible for pushing to trade_history),
+    and remove the order from OPEN_ORDERS.
+
+    Returns a list of closed-trade dicts. Empty list if nothing closed.
+    """
+    closed = []
+    for oid, o in list(OPEN_ORDERS.items()):
+        if o.get("mode") != "PAPER":
+            continue  # LIVE_LIMIT positions are managed by sync_open_orders
+        symbol = o["symbol"]
+        side = o["side"]
+        entry = o["price"]
+        sl = o["sl"]
+        tp = o["tp"]
+        qty = o["qty"]
+
+        live = get_live_ticker(symbol)
+        if live is None or live <= 0:
+            continue  # no live price; skip this cycle
+
+        hit = None
+        exit_price = None
+        if side == "BUY":
+            # Long: SL triggered if live <= sl, TP triggered if live >= tp
+            if live <= sl:
+                hit, exit_price = "SL_HIT", sl
+            elif live >= tp:
+                hit, exit_price = "TP_HIT", tp
+        else:  # SELL (short for paper)
+            if live >= sl:
+                hit, exit_price = "SL_HIT", sl
+            elif live <= tp:
+                hit, exit_price = "TP_HIT", tp
+
+        if not hit:
+            continue
+
+        # Compute PnL in USDT
+        if side == "BUY":
+            pnl = (exit_price - entry) * qty
+        else:
+            pnl = (entry - exit_price) * qty
+
+        notional = o.get("notional", qty * entry)
+        # Return notional + PnL to virtual balance
+        new_balance = _load_paper_balance() + notional + pnl
+        _save_paper_balance(new_balance)
+
+        closed.append({
+            "order_id": oid,
+            "symbol": symbol,
+            "side": side,
+            "entry": entry,
+            "exit": exit_price,
+            "qty": qty,
+            "sl": sl,
+            "tp": tp,
+            "pnl": pnl,
+            "outcome": hit,
+            "notional": notional,
+            "balance_after": new_balance,
+            "closed_at": time.time(),
+            "logic": o.get("logic", ""),
+            "confidence": o.get("confidence", 0),
+            "timeframe": o.get("timeframe", ""),
+            "mode": "PAPER",
+            "risk_per_trade": o.get("risk_per_trade", 0.0),
+            "tier": o.get("tier", 0),
+        })
+        OPEN_ORDERS.pop(oid, None)
+    return closed
 
 
 def cancel_expired_orders() -> list:
     """
-    Cancel any tracked orders that have exceeded ORDER_TIMEOUT_SECONDS.
-    Returns list of cancelled order ids.
+    Cancel any tracked LIVE limit orders that have exceeded ORDER_TIMEOUT_SECONDS.
+    PAPER positions are NOT cancelled here — they live until SL/TP hits (forward test).
+    Returns list of cancelled order dicts.
     """
     client = _get_client()
     now = time.time()
     cancelled = []
     expired_ids = [
         oid for oid, o in OPEN_ORDERS.items()
-        if (now - o.get("placed_at", 0)) > ORDER_TIMEOUT_SECONDS
+        if o.get("mode") != "PAPER"  # skip paper positions
+        and (now - o.get("placed_at", 0)) > ORDER_TIMEOUT_SECONDS
     ]
     for oid in expired_ids:
         o = OPEN_ORDERS[oid]
@@ -246,16 +449,20 @@ def get_open_position(symbol: str) -> list:
 
 def sync_open_orders() -> dict:
     """
-    Poll Binance for the status of every tracked order.
+    Poll Binance for the status of every tracked LIVE order.
+    PAPER positions are NOT touched here — they're managed by check_paper_sl_tp().
+
     - FILLED orders are removed from OPEN_ORDERS (position is closed).
-    - CANCELED / EXPIRED orders are removed.
+    - CANCELED / REJECTED / EXPIRED orders are removed.
     - Still NEW / PARTIALLY_FILLED stay tracked.
 
     Returns a small stats dict {filled: N, removed: N, kept: N}.
     """
     client = _get_client()
     if client is None:
-        return {"filled": 0, "removed": 0, "kept": len(OPEN_ORDERS)}
+        # Paper mode: all positions live until SL/TP. Just count, don't remove.
+        kept = sum(1 for o in OPEN_ORDERS.values() if o.get("mode") == "PAPER")
+        return {"filled": 0, "removed": 0, "kept": kept}
 
     filled = 0
     removed = 0
@@ -263,6 +470,9 @@ def sync_open_orders() -> dict:
     to_remove = []
 
     for oid, o in list(OPEN_ORDERS.items()):
+        if o.get("mode") == "PAPER":
+            kept += 1  # leave paper positions alone
+            continue
         symbol = o.get("symbol")
         try:
             order = client.get_order(symbol=symbol, orderId=oid)

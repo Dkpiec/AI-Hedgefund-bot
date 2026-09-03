@@ -42,9 +42,12 @@ from data.data_engine import (
 )
 from execution import (
     cancel_expired_orders,
+    check_paper_sl_tp,
     execute_trade,
     get_open_orders,
+    get_paper_balance,
     has_open_position,
+    is_live_mode,
     sync_open_orders,
 )
 
@@ -109,12 +112,17 @@ async def startup_event():
 # ============================================================================
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse(request, "index.html", {
+    response = templates.TemplateResponse(request, "index.html", {
         "symbols": bot_state["universe"] or [],
         "scan_intervals": SCAN_INTERVAL_OPTIONS,
         "active_scan_interval": bot_state["scan_interval"],
         "chart_timeframe": bot_state["chart_timeframe"],
     })
+    # Prevent any browser/proxy caching so the dashboard always reflects the live API
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/test-dots", response_class=HTMLResponse)
@@ -165,30 +173,66 @@ async def set_scan_interval(request: Request):
 
 @app.get("/api/status")
 async def status():
-    # Refresh balance from Binance if available
+    # Refresh balance: paper mode reads the virtual persisted balance, live mode reads Binance
     try:
-        acct = get_account_info()
-        if acct.get("free") is not None:
-            bot_state["free"] = acct["free"]
-            bot_state["balance"] = acct["balance"]
-            bot_state["equity"] = acct["equity"]
-            bot_state["pnl"] = acct["balance"] - bot_state["starting_balance"]
-            bot_state["pnl_pct"] = (bot_state["pnl"] / bot_state["starting_balance"]) * 100
+        if is_live_mode():
+            acct = get_account_info()
+            if acct.get("free") is not None:
+                bot_state["free"] = acct["free"]
+                bot_state["balance"] = acct["balance"]
+                bot_state["equity"] = acct["equity"]
+        else:
+            # Paper mode: pull live virtual balance + compute equity from open positions
+            bal = get_paper_balance()
+            # Mark-to-market open paper positions at current price
+            from data.data_engine import get_live_ticker
+            unrealized = 0.0
+            for o in bot_state.get("open_orders", []):
+                if o.get("mode") == "PAPER":
+                    px = get_live_ticker(o["symbol"])
+                    if px:
+                        if o["side"] == "BUY":
+                            unrealized += (px - o["price"]) * o["qty"]
+                        else:
+                            unrealized += (o["price"] - px) * o["qty"]
+            bot_state["free"] = bal
+            bot_state["balance"] = bal
+            bot_state["equity"] = bal + unrealized
+        bot_state["pnl"] = bot_state["balance"] - bot_state["starting_balance"]
+        bot_state["pnl_pct"] = (bot_state["pnl"] / bot_state["starting_balance"]) * 100
     except Exception:
         pass
     bot_state["open_orders"] = get_open_orders()
+    bot_state["mode"] = "LIVE" if is_live_mode() else "PAPER"
+    bot_state["paper_mode"] = not is_live_mode()  # back-compat for the dashboard JS
+    # Tiered position sizing info (0.5% of position size, position size scales +$10 per +$200 balance)
+    from config import (
+        get_position_size_for_balance,
+        get_risk_per_trade_for_balance,
+        get_current_tier,
+    )
+    bal = bot_state.get("balance", 0.0)
+    bot_state["position_size"] = get_position_size_for_balance(bal)
+    bot_state["risk_per_trade_usdt"] = get_risk_per_trade_for_balance(bal)
+    bot_state["tier"] = get_current_tier(bal)
     return bot_state
 
 
 @app.post("/api/reset")
 async def reset():
     bot_state["trade_history"] = []
+    bot_state["cancelled_orders"] = []
     bot_state["cycles_completed"] = 0
     bot_state["balance"] = bot_state["starting_balance"]
     bot_state["equity"] = bot_state["starting_balance"]
     bot_state["free"] = bot_state["starting_balance"]
     bot_state["pnl"] = 0.0
     bot_state["pnl_pct"] = 0.0
+    # Also clear in-memory open positions in execution.py and reset the paper balance file
+    from execution import OPEN_ORDERS
+    OPEN_ORDERS.clear()
+    from execution import _save_paper_balance
+    _save_paper_balance(bot_state["starting_balance"])
     return {"status": "reset", "balance": bot_state["starting_balance"]}
 
 
@@ -276,8 +320,41 @@ async def trading_loop():
         interval = SCAN_INTERVALS[interval_key]
         chart_tf = bot_state["chart_timeframe"]
 
-        # 0. Sync open orders with Binance (filled/closed orders are removed
-        #    from tracking, so the per-symbol position check works correctly).
+        # 0a. Check SL/TP on any open PAPER positions against live ticker
+        try:
+            closed = check_paper_sl_tp()
+            for c in closed:
+                bot_state["trade_history"].append({
+                    "time": datetime.utcnow().isoformat(),
+                    "asset": c["symbol"],
+                    "signal": c["side"],
+                    "logic": c.get("logic", ""),
+                    "confidence": c.get("confidence", 0),
+                    "timeframe": c.get("timeframe", ""),
+                    "entry": c["entry"],
+                    "price": c["exit"],
+                    "exit": c["exit"],
+                    "qty": c["qty"],
+                    "sl": c["sl"],
+                    "tp": c["tp"],
+                    "order_id": c["order_id"],
+                    "mode": c.get("mode", "PAPER"),
+                    "status": c["outcome"],   # TP_HIT or SL_HIT
+                    "pnl": c["pnl"],
+                    "balance_after": c["balance_after"],
+                    "notional": c.get("notional", 0),
+                    "risk_per_trade": c.get("risk_per_trade", 0),
+                    "tier": c.get("tier", 0),
+                })
+                bot_state["last_logic"] = (
+                    f"CLOSED {c['side']} {c['symbol']} @ {c['exit']:.4f} "
+                    f"({c['outcome']}) PnL=${c['pnl']:+.2f}"
+                )
+            bot_state["trade_history"] = bot_state["trade_history"][-200:]
+        except Exception as e:
+            print(f"[BOT] check_paper_sl_tp error: {e}")
+
+        # 0b. Sync open orders with Binance (live limit orders; no-op in paper mode)
         try:
             sync_open_orders()
         except Exception as e:
@@ -309,8 +386,9 @@ async def trading_loop():
                 bot_state["last_timeframe"] = chart_tf
 
                 # 4. Skip if confidence too low
-                if decision.get("confidence_score", 0) < 60:
+                if decision.get("confidence_score", 0) < 55:
                     bot_state["last_logic"] += " (skipped: low confidence)"
+                    print(f"[SCAN] {symbol} skip: conf={decision.get('confidence_score',0)} signal={decision.get('signal','?')}")
                     continue
 
                 # 5. Execute on BUY/SELL — but ONLY if no open position for this symbol
@@ -319,7 +397,9 @@ async def trading_loop():
                         bot_state["last_logic"] = (
                             f"{symbol}: position already open, skipping {decision['signal']}"
                         )
+                        print(f"[SKIP] {symbol} {decision['signal']}: position already open")
                         continue
+                    print(f"[FIRE] {symbol} {decision['signal']} conf={decision.get('confidence_score',0)}")
                     result = execute_trade(
                         symbol,
                         decision["signal"],
@@ -341,6 +421,9 @@ async def trading_loop():
                             "order_id": result.get("order_id", ""),
                             "mode": result.get("mode", "LIVE"),
                             "status": "PLACED",
+                            "notional": result.get("notional", 0),
+                            "risk_per_trade": result.get("risk_per_trade", 0),
+                            "tier": result.get("tier", 0),
                         })
                         bot_state["trade_history"] = bot_state["trade_history"][-100:]
 

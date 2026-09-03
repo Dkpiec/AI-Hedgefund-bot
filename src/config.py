@@ -43,6 +43,10 @@ BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
 # Starting testnet account balance in USDT
 STARTING_BALANCE = float(os.getenv("STARTING_BALANCE", "200"))
 
+# File where the paper-mode virtual USDT balance is persisted.
+# Lives next to trading.db so PnL and balance survive restarts.
+PAPER_BALANCE_FILE = Path(__file__).resolve().parent.parent / "data" / "paper_balance.txt"
+
 # ============================================================================
 # TRADING CONFIGURATION
 # ============================================================================
@@ -68,7 +72,7 @@ DEFAULT_SCAN_INTERVAL = "1h"
 MAX_PRICE_USD = float(os.getenv("MAX_PRICE_USD", "2000"))
 
 # Minimum 24h volume filter (USDT) — only trade liquid assets
-MIN_24H_VOLUME_USDT = float(os.getenv("MIN_24H_VOLUME_USDT", "50_000_000"))
+MIN_24H_VOLUME_USDT = float(os.getenv("MIN_24H_VOLUME_USDT", "25_000_000"))  # halved from 50M to expand universe
 
 # Candidate universe — filtered at startup by price + volume rules
 # Conservative list of liquid USDT pairs that usually price under $2000
@@ -97,7 +101,63 @@ SYMBOLS = []
 # Crypto is 5-10x more volatile than Forex, so we need wider stops and targets
 SL_PERCENT = 0.0075   # 0.75% stop loss
 TP_PERCENT = 0.015    # 1.5% take profit (2:1 R:R)
-RISK_PER_TRADE = 0.05  # 5% of capital per trade (user-set 2026-09-02)
+RISK_PER_TRADE = 0.06  # 6% of capital per trade (bumped from 5% to keep notional above $10 min after 1st trade)
+
+# ============================================================================
+# TIERED POSITION SIZING (user-set 2026-09-03)
+# ============================================================================
+# Tiered position sizing based on the running paper balance. Position size
+# bumps +$10 every time the balance crosses the next $400 threshold.
+#
+#   Balance band       | Position size | Risk per trade (0.5% of size)
+#   -------------------|---------------|------------------------------
+#   $0     – $400      | $10           | $0.05
+#   $400   – $800      | $20           | $0.10
+#   $800   – $1200     | $30           | $0.15
+#   $1200  – $1600     | $40           | $0.20
+#   $1600  – $2000     | $50           | $0.25
+#   $2000  – $2400     | $60           | $0.30
+#   ... +$400 per tier | +$10 position | +$0.05 risk
+#
+# "Balance increases by $200 → position size +$10" but starting from the $200
+# base, so the first threshold is $400 (= 2 × $200), the next is $800, etc.
+#
+# The risk per trade here is the MONEY risked on the trade (0.5% of position
+# notional), NOT a percentage of account equity. This is informational and
+# stored on each trade for the strategy_evolution module to grade strategies.
+POSITION_TIER_SIZE = 10.0          # base position size ($10 at tier 0)
+POSITION_TIER_BALANCE_STEP = 200   # $200 of balance growth per tier
+POSITION_TIER_BASE_BALANCE = 200   # $200 is the "starting equity" — tier bumps every +$200
+RISK_PCT_OF_POSITION = 0.005       # 0.5% of position size = money risked per trade
+
+
+def get_position_size_for_balance(balance: float) -> float:
+    """
+    Return the position size (in USDT) for a given account balance, using the
+    tiered schedule above. Each +$200 in balance above $200 bumps position size
+    by +$10. So balance $0–$400 → $10, $400–$800 → $20, etc.
+    """
+    if balance < 0:
+        return POSITION_TIER_SIZE
+    growth = max(0.0, balance - POSITION_TIER_BASE_BALANCE)
+    tier = int(growth // POSITION_TIER_BALANCE_STEP)
+    return POSITION_TIER_SIZE * (1 + tier)
+
+
+def get_risk_per_trade_for_balance(balance: float) -> float:
+    """
+    Return the money risked per trade (in USDT) for a given account balance:
+    0.5% of the position size.
+    """
+    return get_position_size_for_balance(balance) * RISK_PCT_OF_POSITION
+
+
+def get_current_tier(balance: float) -> int:
+    """Return the current tier index (0-based). Tier 0 = $0–$400, tier 1 = $400–$800, etc."""
+    if balance < 0:
+        return 0
+    growth = max(0.0, balance - POSITION_TIER_BASE_BALANCE)
+    return int(growth // POSITION_TIER_BALANCE_STEP)
 
 # Order management
 ORDER_TIMEOUT_SECONDS = 300   # 5 min — cancel unfilled limit orders
