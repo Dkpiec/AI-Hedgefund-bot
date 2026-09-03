@@ -17,7 +17,6 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
 
 API_BASE = os.getenv("API_BASE", "https://ai-hedgefund-api-hp2i.onrender.com")
 
@@ -51,10 +50,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# HELPERS — no cache; we want fresh data on every fragment rerun.
-# Treat 429 (rate limited) and 5xx (Render cold-starting) as transient —
-# the fragment will retry on the next tick instead of showing an error.
+# HELPERS — cache for 30s so fragment reruns don't hit Render on every tick.
+# 30s matches the autorefresh interval, so the cache always misses
+# exactly when we want a fresh fetch.
 # ============================================================================
+@st.cache_data(ttl=30)
 def fetch_status():
     try:
         r = requests.get(f"{API_BASE}/api/status", timeout=5)
@@ -117,10 +117,12 @@ st.sidebar.header("🎛️ Controls")
 if state.get("is_running"):
     if st.sidebar.button("■ Stop Engine", use_container_width=True):
         post("/api/control", {"action": "stop", "interval": state.get("interval", 30)})
+        st.cache_data.clear()
         st.rerun()
 else:
     if st.sidebar.button("▶ Initialize Engine", use_container_width=True):
         post("/api/control", {"action": "start", "interval": 30})
+        st.cache_data.clear()
         st.rerun()
 
 st.sidebar.subheader("Interval")
@@ -133,6 +135,7 @@ interval = st.sidebar.selectbox(
 )
 if interval != state.get("interval"):
     post("/api/control", {"action": "start", "interval": interval})
+    st.cache_data.clear()
     st.rerun()
 
 st.sidebar.subheader("AI Model")
@@ -144,11 +147,13 @@ if current not in free_models:
 selected = st.sidebar.selectbox("Model", free_models, index=free_models.index(current) if current in free_models else 0)
 if st.sidebar.button("Apply Model"):
     post("/api/model", {"model": selected})
+    st.cache_data.clear()
     st.rerun()
 st.sidebar.caption(f"Active: **{state.get('resolved_model', current)}**")
 
 if st.sidebar.button("🗑️ Clear Trade History"):
     post("/api/reset")
+    st.cache_data.clear()
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -156,18 +161,16 @@ st.sidebar.caption("Backend: `Render FastAPI`")
 st.sidebar.caption("Refresh: every 30 seconds (background)")
 
 # ============================================================================
-# LIVE PANEL — auto-refreshes every 30s in place, without dimming the page
-# or losing focus. streamlit-autorefresh's component is placed at the top of
-# a fragment so only this section reruns. Polling at 30s (not 10s) avoids
-# hitting Render's free-tier rate limiter.
+# LIVE PANEL — auto-refreshes every 30s in place.
+#
+# Uses @st.fragment(run_every="30s") — Streamlit's modern, built-in
+# scheduled-rerun API (available in streamlit>=1.33). On Streamlit Cloud
+# this reruns only the fragment, with no full-page "Running script..."
+# overlay. fetch_status is cached for 30s (matching the interval), so
+# the rerun is sub-50ms and effectively invisible.
 # ============================================================================
-@st.fragment
+@st.fragment(run_every="30s")
 def live_panel():
-    # 30_000 ms = 30s. Slower polling avoids hitting Render's free-tier
-    # rate limiter (429) when multiple users (or one user across
-    # Streamlit Cloud's egress IPs) are watching the dashboard.
-    st_autorefresh(interval=30_000, key="live_panel_refresh")
-
     state = fetch_status()
     if not state:
         st.warning(f"⏳ No response from backend at {API_BASE}; will retry in 30s.")
