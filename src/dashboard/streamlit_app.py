@@ -18,7 +18,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-API_BASE = os.getenv("API_BASE", "https://ai-hedgefund-api-hp2i.onrender.com")
+API_BASE = os.getenv("API_BASE", "http://ai-hedgefund.161.118.184.188.sslip.io")
 
 # ============================================================================
 # PAGE CONFIG
