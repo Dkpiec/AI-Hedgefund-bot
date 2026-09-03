@@ -283,6 +283,18 @@ def live_panel():
         st.caption("No open positions.")
     else:
         odf = pd.DataFrame(open_orders)
+        # Normalize column names: open_orders uses symbol/side, trade_history uses asset/signal
+        if "symbol" in odf.columns and "asset" not in odf.columns:
+            odf["asset"] = odf["symbol"]
+        if "side" in odf.columns and "signal" not in odf.columns:
+            odf["signal"] = odf["side"]
+        # Build a "time" column from placed_at/filled_at (Unix timestamps)
+        for ts_col in ("filled_at", "placed_at"):
+            if ts_col in odf.columns and "time" not in odf.columns:
+                try:
+                    odf["time"] = pd.to_datetime(odf[ts_col], unit="s", utc=True)
+                except Exception:
+                    pass
         if "time" in odf.columns:
             odf["time"] = (
                 pd.to_datetime(odf["time"], utc=True, errors="coerce")
@@ -333,39 +345,44 @@ def live_panel():
     st.header("📈 Equity Curve")
 
     if closed_trades:
-        # Build realised equity curve from closed trades
+        # Build realised equity curve from closed trades only.
+        # starting_balance + cumsum(pnl) — does NOT include unrealized open-position notionals.
         df = pd.DataFrame(closed_trades)
         if "time" in df.columns:
             df["time"] = pd.to_datetime(df["time"], utc=True).dt.tz_convert("Asia/Kolkata")
             df = df.sort_values("time")
-        # Each closed trade has a realised pnl field
         if "pnl" in df.columns:
             df["pnl"] = pd.to_numeric(df["pnl"], errors="coerce").fillna(0.0)
             starting = float(state.get("starting_balance") or 0)
             df["cum_pnl"] = df["pnl"].cumsum()
             df["equity"] = starting + df["cum_pnl"]
-            # Optional: append current equity as latest point
-            current_equity = float(state.get("equity") or state.get("balance") or starting)
+            # Latest realised equity (starting + total realised PnL)
+            realized_equity = starting + float(df["pnl"].sum())
             now = pd.Timestamp.utcnow().tz_convert("Asia/Kolkata")
-            # Avoid duplicate timestamps
             if df["time"].iloc[-1] != now:
                 df = pd.concat([
                     df,
-                    pd.DataFrame([{"time": now, "equity": current_equity}])
+                    pd.DataFrame([{"time": now, "equity": realized_equity}])
                 ], ignore_index=True)
-            eq_plot = df.set_index("time")[["equity"]].rename(columns={"equity": "Equity ($)"})
+            eq_plot = df.set_index("time")[["equity"]].rename(columns={"equity": "Realised Equity ($)"})
             st.line_chart(eq_plot, height=300)
-            st.caption(f"{len(closed_trades)} closed trade(s) plotted. {len(open_trades)} open.")
+            pnl_total = float(df["pnl"].sum())
+            sign = "+" if pnl_total >= 0 else ""
+            st.caption(
+                f"{len(closed_trades)} closed trade(s) plotted • {len(open_trades)} open. "
+                f"Realised PnL: {sign}${pnl_total:.2f} • "
+                f"Current realised equity: ${realized_equity:.2f} (start: ${starting:.2f})"
+            )
         else:
             st.info("Closed trades recorded but missing `pnl`.")
     else:
-        # No closed trades yet — show current equity vs starting balance as a
-        # single-point chart so the section isn't empty.
+        # No closed trades yet — show a flat line at starting balance so the
+        # section isn't empty.
         starting = float(state.get("starting_balance") or 0)
-        current = float(state.get("equity") or state.get("balance") or starting)
+        now = pd.Timestamp.utcnow().tz_convert("Asia/Kolkata")
         placeholder = pd.DataFrame(
-            {"Equity ($)": [starting, current]},
-            index=pd.to_datetime([datetime.utcnow() - pd.Timedelta(seconds=1), datetime.utcnow()]),
+            {"Realised Equity ($)": [starting, starting]},
+            index=pd.to_datetime([now - pd.Timedelta(seconds=1), now]),
         )
         st.line_chart(placeholder, height=300)
         st.info(
