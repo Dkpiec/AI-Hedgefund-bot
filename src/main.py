@@ -421,8 +421,8 @@ async def trading_loop():
                 bot_state["last_symbol"] = symbol
                 bot_state["last_timeframe"] = chart_tf
 
-                # 4. Skip if confidence too low
-                if decision.get("confidence_score", 0) < 55:
+                # 4. Skip if confidence too low (threshold: 70)
+                if decision.get("confidence_score", 0) < 70:
                     bot_state["last_logic"] += " (skipped: low confidence)"
                     print(f"[SCAN] {symbol} skip: conf={decision.get('confidence_score',0)} signal={decision.get('signal','?')}")
                     continue
