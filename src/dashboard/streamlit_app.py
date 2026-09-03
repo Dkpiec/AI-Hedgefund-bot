@@ -17,6 +17,7 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 API_BASE = os.getenv("API_BASE", "https://ai-hedgefund-api-hp2i.onrender.com")
 
@@ -50,9 +51,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# HELPERS
+# HELPERS — no cache; we want fresh data on every fragment rerun.
 # ============================================================================
-@st.cache_data(ttl=2)
 def fetch_status():
     try:
         r = requests.get(f"{API_BASE}/api/status", timeout=5)
@@ -61,7 +61,7 @@ def fetch_status():
         return {"error": str(e)}
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)  # model list rarely changes; 5 min is fine
 def fetch_models():
     try:
         r = requests.get(f"{API_BASE}/api/models", timeout=10)
@@ -142,12 +142,16 @@ st.sidebar.caption("Backend: `Render FastAPI`")
 st.sidebar.caption("Refresh: every 10 seconds (background)")
 
 # ============================================================================
-# LIVE STATS FRAGMENT — auto-refreshes in the background without rerunning
-# the whole page (no flicker, no dimming, no input-focus loss).
+# LIVE PANEL — auto-refreshes every 10s in place, without dimming the page
+# or losing focus. streamlit-autorefresh's component is placed at the top of
+# a fragment so only this section reruns.
 # ============================================================================
-@st.fragment(run_every="10s")
-def live_stats():
-    # Re-fetch (uses the 2s cache; fragment runs every 10s, so cache always misses)
+@st.fragment
+def live_panel():
+    # 10_000 ms = 10s. When called inside a fragment, this triggers a
+    # fragment-only rerun — no full-page rerun, no "Running script..." overlay.
+    st_autorefresh(interval=10_000, key="live_panel_refresh")
+
     state = fetch_status()
     if not state or "error" in state:
         st.error(f"❌ Cannot reach FastAPI backend at {API_BASE}. Start it or set API_BASE in Streamlit secrets.")
@@ -212,7 +216,30 @@ def live_stats():
     st.subheader("🧠 AI Logic")
     st.info(state.get("last_logic", "Bot idle."))
 
-    # Execution feed
+    # --- Open positions (from open_orders, which the backend keeps separate
+    # from filled/closed trade_history) ---
+    open_orders = state.get("open_orders", []) or []
+    st.subheader(f"📂 Open Positions ({len(open_orders)})")
+    if not open_orders:
+        st.caption("No open positions.")
+    else:
+        odf = pd.DataFrame(open_orders)
+        if "time" in odf.columns:
+            odf["time"] = (
+                pd.to_datetime(odf["time"], utc=True, errors="coerce")
+                .dt.tz_convert("Asia/Kolkata")
+                .dt.strftime("%Y-%m-%d %H:%M:%S")
+            )
+        for col in ("price", "sl", "tp"):
+            if col in odf.columns:
+                odf[col] = odf[col].astype(float).round(5)
+        odf = odf.iloc[::-1]  # newest first
+        desired_o = ["time", "asset", "signal", "status", "confidence",
+                     "price", "sl", "tp", "qty", "notional", "mode"]
+        cols_o = [c for c in desired_o if c in odf.columns]
+        st.dataframe(odf[cols_o], use_container_width=True, hide_index=True)
+
+    # --- Execution feed (filled/closed trades) ---
     st.header("📜 Execution Feed")
     trades = state.get("trade_history", [])
     if not trades:
@@ -252,4 +279,4 @@ def live_stats():
 
     st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')} IST (auto, every 10s)")
 
-live_stats()
+live_panel()
