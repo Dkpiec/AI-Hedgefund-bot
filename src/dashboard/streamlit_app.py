@@ -18,7 +18,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-API_BASE = os.getenv("API_BASE", "http://localhost:8000")
+API_BASE = os.getenv("API_BASE", "https://ai-hedgefund-api-hp2i.onrender.com")
 
 # ============================================================================
 # PAGE CONFIG
@@ -85,7 +85,7 @@ st.title("⚡ AI HEDGE FUND — STREAMLIT CONSOLE")
 state = fetch_status()
 
 if not state or "error" in state:
-    st.error("❌ Cannot reach FastAPI backend at http://localhost:8000. Start it first: `cd src && python main.py`")
+    st.error(f"❌ Cannot reach FastAPI backend at {API_BASE}. Start it or set API_BASE in Streamlit secrets.")
     st.stop()
 
 # Top status row
