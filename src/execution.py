@@ -32,10 +32,13 @@ from config import (
     STRICT_LIMIT_ORDERS,
     TP_PERCENT,
 )
+from state_store import load_open_orders, save_open_orders
 from data.data_engine import get_account_info, get_live_ticker, get_symbol_info
 
 # In-memory tracking of open orders: {order_id: {symbol, side, qty, price, placed_at, sl, tp, mode, ...}}
 OPEN_ORDERS: Dict[str, Dict] = {}
+# Load persisted open orders so the engine continues where it left off.
+OPEN_ORDERS.update(load_open_orders())
 
 # Per-order counter for paper mode order ids (PAPER-1, PAPER-2, ...)
 _paper_id_counter = [0]
@@ -188,6 +191,7 @@ def execute_trade(symbol: str, signal: str, ask_price: float, decision: dict) ->
             "confidence": decision.get("confidence_score", 0),
             "timeframe": decision.get("timeframe", ""),
         }
+        save_open_orders(OPEN_ORDERS)
         return {
             "success": True,
             "mode": "LIVE_LIMIT",
@@ -293,6 +297,7 @@ def _success_paper(symbol: str, signal: str, ask_price: float, decision: dict) -
         "risk_per_trade": risk_per_trade,
         "tier": current_tier,
     }
+    save_open_orders(OPEN_ORDERS)
     return {
         "success": True,
         "mode": "PAPER",
@@ -384,6 +389,7 @@ def check_paper_sl_tp() -> list:
             "tier": o.get("tier", 0),
         })
         OPEN_ORDERS.pop(oid, None)
+        save_open_orders(OPEN_ORDERS)
     return closed
 
 
@@ -411,12 +417,15 @@ def cancel_expired_orders() -> list:
                 print(f"[EXEC] Cancel error for {oid}: {e}")
         cancelled.append({"order_id": oid, "symbol": o["symbol"]})
         OPEN_ORDERS.pop(oid, None)
+    save_open_orders(OPEN_ORDERS)
     return cancelled
 
 
 def mark_order_filled(order_id: str) -> Optional[Dict]:
     """Remove an order from tracking once it has filled. Returns the order data."""
-    return OPEN_ORDERS.pop(order_id, None)
+    result = OPEN_ORDERS.pop(order_id, None)
+    save_open_orders(OPEN_ORDERS)
+    return result
 
 
 def get_open_orders() -> list:

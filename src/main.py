@@ -50,6 +50,7 @@ from execution import (
     is_live_mode,
     sync_open_orders,
 )
+from state_store import load_bot_state, save_bot_state, save_open_orders
 
 # ============================================================================
 # GLOBAL STATE
@@ -83,6 +84,10 @@ bot_state = {
     "scan_interval_options": SCAN_INTERVAL_OPTIONS,
     "chart_timeframe_options": CHART_TIMEFRAMES,
 }
+
+# Restore persisted state (balance, trade_history, open_orders, etc.)
+# so the engine resumes where it left off instead of resetting to $200.
+load_bot_state(bot_state)
 
 # ============================================================================
 # FASTAPI APP
@@ -233,6 +238,9 @@ async def reset():
     OPEN_ORDERS.clear()
     from execution import _save_paper_balance
     _save_paper_balance(bot_state["starting_balance"])
+    # Persist the reset so it survives restarts too
+    save_bot_state(bot_state)
+    save_open_orders(OPEN_ORDERS)
     return {"status": "reset", "balance": bot_state["starting_balance"]}
 
 
@@ -436,6 +444,8 @@ async def trading_loop():
         bot_state["next_scan_at"] = (
             datetime.utcnow().timestamp() + interval
         )
+        # Persist state before sleeping — ensures open orders, PnL, balance survive restarts.
+        save_bot_state(bot_state)
         # Sleep in 1s chunks so /api/control stop and /api/scan-interval stay responsive
         for _ in range(interval):
             if not bot_state["is_running"]:
