@@ -51,7 +51,6 @@ from execution import (
     sync_open_orders,
 )
 from state_store import load_bot_state, save_bot_state, save_open_orders, pull_state_from_git
-from state_store import load_bot_state, save_bot_state, save_open_orders, pull_state_from_git
 
 # ============================================================================
 # GLOBAL STATE
