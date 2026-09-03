@@ -1,25 +1,28 @@
 """
 State persistence for the AI Hedge Fund Bot.
 
-Uses the GitHub Contents API (HTTPS) to persist state across Render redeploys.
-No git CLI, no branch switching, no stash - just HTTP PUT/GET against the
-state branch. Works on any ephemeral filesystem.
+Primary store: Turso (libSQL) over its HTTPS pipeline API — survives
+Render redeploys because state lives in an external database (Mumbai
+region), not on Render's ephemeral filesystem.
 
-Local atomic JSON writes still happen for in-deploy restarts.
+Local JSON files are still written on every save as a fallback/cache,
+and are used if Turso is unreachable.
+
+No third-party dependencies — uses only the Python stdlib (urllib).
+
+Env vars (set on Render):
+  TURSO_DB_TOKEN  – database auth token (required for remote persistence)
+  TURSO_DB_URL    – override DB URL (default baked in below)
 """
-import base64
 import json
 import os
-import re
-import subprocess
 import sys
-import threading
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+from typing import Any, Dict, List, Optional
 
+# --------------------------------------------------------------------------
+# Paths (local fallback cache)
+# --------------------------------------------------------------------------
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = _REPO_ROOT / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -28,6 +31,7 @@ STATE_FILE = DATA_DIR / "state.json"
 ORDERS_FILE = DATA_DIR / "paper_orders.json"
 BALANCE_FILE = DATA_DIR / "paper_balance.txt"
 
+# Fields in bot_state we persist.
 _PERSISTED_BOT_KEYS = [
     "starting_balance", "balance", "equity", "free",
     "pnl", "pnl_pct", "trade_history", "cancelled_orders",
@@ -36,151 +40,129 @@ _PERSISTED_BOT_KEYS = [
     "started_at", "is_running", "universe",
 ]
 
-_STATE_BRANCH = "state"
-_GIT_LOCK = threading.Lock()
-_last_git_push_ts: float = 0.0
-_GIT_PUSH_MIN_INTERVAL = 60.0
+# --------------------------------------------------------------------------
+# Turso config
+# --------------------------------------------------------------------------
+TURSO_DB_URL = os.environ.get(
+    "TURSO_DB_URL",
+    "https://hedgefund-state-dkpiec.aws-ap-south-1.turso.io",
+).rstrip("/")
+
+_SCHEMA_STATEMENTS = [
+    "CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS trade_history (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "trade_json TEXT NOT NULL, created_at TEXT DEFAULT (datetime('now')))",
+    "CREATE TABLE IF NOT EXISTS open_orders (order_id TEXT PRIMARY KEY, "
+    "order_json TEXT NOT NULL, updated_at TEXT DEFAULT (datetime('now')))",
+]
+
+_schema_ready = False
 
 
-def _get_gh_token() -> Optional[str]:
-    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
-        tok = os.environ.get(key)
-        if tok:
-            return tok
-    try:
-        url = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-        m = re.search(r"x-access-token:([^@]+)@", url)
-        if m:
-            return m.group(1)
-    except Exception:
-        pass
-    return None
+def _turso_token() -> str:
+    return os.environ.get("TURSO_DB_TOKEN") or os.environ.get("TURSO_AUTH_TOKEN") or ""
 
 
-def _get_repo() -> str:
-    try:
-        url = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(_REPO_ROOT), capture_output=True, text=True, timeout=5,
-        ).stdout.strip()
-        m = re.search(r"github\.com[:/]([^/]+/[^/.]+)", url)
-        if m:
-            return m.group(1)
-    except Exception:
-        pass
-    return "Dkpiec/AI-Hedgefund-bot"
+def _val(v: Any) -> Dict:
+    """Wrap a Python value in Turso's internally-tagged Value enum format."""
+    if v is None:
+        return {"type": "null"}
+    if isinstance(v, bool):
+        return {"type": "integer", "value": int(v)}
+    if isinstance(v, int):
+        return {"type": "integer", "value": v}
+    if isinstance(v, float):
+        return {"type": "float", "value": v}
+    if isinstance(v, (bytes, bytearray)):
+        return {"type": "blob", "value": list(v)}
+    return {"type": "text", "value": str(v)}
 
 
-def _gh_api(method: str, path: str, body: Optional[dict] = None, token: Optional[str] = None) -> Optional[dict]:
+def _pipeline(requests: List[Dict], timeout: int = 15) -> Optional[Dict]:
+    """POST a batch of statements to the Turso v2 pipeline API.
+
+    Returns the parsed response, or None if unavailable/failed.
+    Each request: {"type": "execute", "stmt": {"sql": ..., "args": [...]}}
+    """
+    global _schema_ready
+    token = _turso_token()
     if not token:
-        token = _get_gh_token()
-    if not token:
-        print("[STATE_STORE] No GitHub token available", file=sys.stderr)
         return None
-    url = f"https://api.github.com/repos/{_get_repo()}{path}"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github.v3+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    data = json.dumps(body).encode() if body else None
-    req = Request(url, data=data, headers=headers, method=method)
+
+    from urllib.request import Request, urlopen
+
+    if not _schema_ready:
+        schema_reqs = [
+            {"type": "execute", "stmt": {"sql": s}} for s in _SCHEMA_STATEMENTS
+        ]
+        requests = schema_reqs + requests
+        _schema_ready = True  # optimistic; retried next call on failure
+
+    payload = json.dumps({"requests": requests}).encode()
+    req = Request(
+        f"{TURSO_DB_URL}/v2/pipeline",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
     try:
-        with urlopen(req, timeout=15) as resp:
-            if resp.status == 204:
-                return {}
-            return json.loads(resp.read())
-    except HTTPError as e:
-        print(f"[STATE_STORE] GitHub API {method} {path} -> {e.code}: {e.reason}", file=sys.stderr)
-        return None
+        with urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
     except Exception as e:
-        print(f"[STATE_STORE] GitHub API {method} {path} failed: {e}", file=sys.stderr)
+        _schema_ready = False
+        print(f"[STATE_STORE] Turso request failed: {e}", file=sys.stderr)
         return None
 
 
-def _gh_get_file(path: str, branch: str = _STATE_BRANCH) -> Optional[str]:
-    result = _gh_api("GET", f"/contents/{path}?ref={branch}")
-    if not result or "content" not in result:
-        return None
+def _pipeline_ok(resp: Optional[Dict]) -> bool:
+    if not resp:
+        return False
+    results = resp.get("results", [])
+    return all(r.get("type") != "error" for r in results)
+
+
+def _unwrap_row(row: Any, cols: List[Dict]) -> Dict[str, Any]:
+    """Convert positional tagged-value array into a dict keyed by column name."""
+    if isinstance(row, dict):
+        # Already a dict (older API formats)
+        return row
+    if isinstance(row, list) and cols:
+        result = {}
+        for i, cell in enumerate(row):
+            if i < len(cols):
+                col_name = cols[i].get("name", f"col_{i}")
+                # Unwrap the tagged value format
+                if isinstance(cell, dict):
+                    if cell.get("type") == "null":
+                        result[col_name] = None
+                    elif "value" in cell:
+                        result[col_name] = cell["value"]
+                    else:
+                        result[col_name] = cell
+                else:
+                    result[col_name] = cell
+        return result
+    return {}
+
+
+def _rows_from_response(resp: Optional[Dict]) -> tuple[List[Dict], List[Dict]]:
+    """Extract rows and column metadata from a pipeline response."""
+    if not resp:
+        return [], []
     try:
-        return base64.b64decode(result["content"]).decode("utf-8")
-    except Exception as e:
-        print(f"[STATE_STORE] Failed to decode {path}: {e}", file=sys.stderr)
-        return None
+        result = resp["results"][0]["response"]["result"]
+        rows = result.get("rows", [])
+        cols = result.get("cols", [])
+        return rows, cols
+    except (KeyError, IndexError):
+        return [], []
 
 
-def _gh_put_file(path: str, content: str, message: str, branch: str = _STATE_BRANCH) -> bool:
-    existing = _gh_api("GET", f"/contents/{path}?ref={branch}")
-    sha = existing.get("sha") if existing and "sha" in existing else None
-    body = {
-        "message": message,
-        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-        "branch": branch,
-    }
-    if sha:
-        body["sha"] = sha
-    result = _gh_api("PUT", f"/contents/{path}", body=body)
-    return result is not None
-
-
-def pull_state_from_git() -> None:
-    token = _get_gh_token()
-    if not token:
-        print("[STATE_STORE] No GitHub token; skipping pull", file=sys.stderr)
-        return
-    files_map = {
-        "data/state.json": STATE_FILE,
-        "data/paper_orders.json": ORDERS_FILE,
-        "data/paper_balance.txt": BALANCE_FILE,
-    }
-    restored = 0
-    for remote_path, local_path in files_map.items():
-        content = _gh_get_file(remote_path, _STATE_BRANCH)
-        if content is not None:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_text(content)
-            restored += 1
-    if restored:
-        print(f"[STATE_STORE] Restored {restored}/{len(files_map)} files from {_STATE_BRANCH} via API", file=sys.stderr)
-    else:
-        print(f"[STATE_STORE] No state files found on {_STATE_BRANCH} branch", file=sys.stderr)
-
-
-def _push_state_to_github_async(message: str = "auto: state update") -> None:
-    global _last_git_push_ts
-    now = time.time()
-    if now - _last_git_push_ts < _GIT_PUSH_MIN_INTERVAL:
-        return
-
-    def _do():
-        global _last_git_push_ts
-        with _GIT_LOCK:
-            now2 = time.time()
-            if now2 - _last_git_push_ts < _GIT_PUSH_MIN_INTERVAL:
-                return
-            files_map = {
-                "data/state.json": STATE_FILE,
-                "data/paper_orders.json": ORDERS_FILE,
-                "data/paper_balance.txt": BALANCE_FILE,
-            }
-            pushed = 0
-            for remote_path, local_path in files_map.items():
-                if not local_path.exists():
-                    continue
-                content = local_path.read_text()
-                if _gh_put_file(remote_path, content, message, _STATE_BRANCH):
-                    pushed += 1
-            _last_git_push_ts = time.time()
-            if pushed:
-                print(f"[STATE_STORE] Pushed {pushed} files to {_STATE_BRANCH} via API", file=sys.stderr)
-
-    t = threading.Thread(target=_do, daemon=True)
-    t.start()
-
-
+# --------------------------------------------------------------------------
+# Local atomic file helpers (fallback cache)
+# --------------------------------------------------------------------------
 def _atomic_write(path: Path, payload: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
@@ -190,15 +172,59 @@ def _atomic_write(path: Path, payload: str) -> None:
         print(f"[STATE_STORE] Failed to write {path}: {e}", file=sys.stderr)
 
 
+# --------------------------------------------------------------------------
+# bot_state
+# --------------------------------------------------------------------------
 def save_bot_state(state: Dict[str, Any]) -> None:
     snapshot = {k: state.get(k) for k in _PERSISTED_BOT_KEYS if k in state}
+
+    # Local cache (always)
     _atomic_write(STATE_FILE, json.dumps(snapshot, indent=2, default=str))
-    trades = len(snapshot.get("trade_history", []))
-    bal = snapshot.get("balance", "?")
-    _push_state_to_github_async(f"auto: balance={bal}, trades={trades}")
+
+    # Remote (Turso)
+    requests = [
+        {
+            "type": "execute",
+            "stmt": {
+                "sql": "INSERT INTO bot_state(key, value) VALUES(?, ?) "
+                       "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                "args": [_val(k), _val(json.dumps(v, default=str))],
+            },
+        }
+        for k, v in snapshot.items()
+    ]
+    if _pipeline_ok(_pipeline(requests)):
+        print(f"[STATE_STORE] Saved state to Turso ({len(snapshot)} keys)", file=sys.stderr)
+    else:
+        print("[STATE_STORE] Turso save failed — local cache only", file=sys.stderr)
 
 
 def load_bot_state(into: Dict[str, Any]) -> bool:
+    # Try Turso first
+    resp = _pipeline([
+        {"type": "execute", "stmt": {"sql": "SELECT key, value FROM bot_state"}}
+    ])
+    if _pipeline_ok(resp):
+        rows, cols = _rows_from_response(resp)
+        if rows:
+            applied = 0
+            for row in rows:
+                row_dict = _unwrap_row(row, cols)
+                k = row_dict.get("key")
+                if k is None:
+                    continue
+                try:
+                    v = json.loads(row_dict.get("value", "null"))
+                except Exception:
+                    continue
+                if v is not None:
+                    into[k] = v
+                    applied += 1
+            print(f"[STATE_STORE] Loaded state from Turso ({applied} keys)", file=sys.stderr)
+            return applied > 0
+        print("[STATE_STORE] Turso state empty — falling back to local", file=sys.stderr)
+
+    # Fallback: local file
     if not STATE_FILE.exists():
         return False
     try:
@@ -212,12 +238,49 @@ def load_bot_state(into: Dict[str, Any]) -> bool:
     return True
 
 
+# --------------------------------------------------------------------------
+# open orders
+# --------------------------------------------------------------------------
 def save_open_orders(orders: Dict[str, Dict]) -> None:
+    # Local cache (always)
     _atomic_write(ORDERS_FILE, json.dumps(orders, indent=2, default=str))
-    _push_state_to_github_async(f"auto: {len(orders)} open orders")
+
+    # Remote: full replace in one atomic batch
+    requests: List[Dict] = [{"type": "execute", "stmt": {"sql": "DELETE FROM open_orders"}}]
+    for order_id, order in orders.items():
+        requests.append({
+            "type": "execute",
+            "stmt": {
+                "sql": "INSERT INTO open_orders(order_id, order_json) VALUES(?, ?)",
+                "args": [_val(order_id), _val(json.dumps(order, default=str))],
+            },
+        })
+    if _pipeline_ok(_pipeline(requests)):
+        print(f"[STATE_STORE] Saved {len(orders)} open orders to Turso", file=sys.stderr)
+    else:
+        print("[STATE_STORE] Turso orders save failed — local cache only", file=sys.stderr)
 
 
 def load_open_orders() -> Dict[str, Dict]:
+    resp = _pipeline([
+        {"type": "execute", "stmt": {"sql": "SELECT order_id, order_json FROM open_orders"}}
+    ])
+    if _pipeline_ok(resp):
+        rows, cols = _rows_from_response(resp)
+        orders: Dict[str, Dict] = {}
+        for row in rows:
+            row_dict = _unwrap_row(row, cols)
+            order_id = row_dict.get("order_id")
+            if order_id is None:
+                continue
+            try:
+                orders[order_id] = json.loads(row_dict.get("order_json", "{}"))
+            except Exception:
+                continue
+        print(f"[STATE_STORE] Loaded {len(orders)} open orders from Turso", file=sys.stderr)
+        return orders
+
+    # Fallback: local file
     if not ORDERS_FILE.exists():
         return {}
     try:
@@ -225,3 +288,11 @@ def load_open_orders() -> Dict[str, Dict]:
     except Exception as e:
         print(f"[STATE_STORE] paper_orders.json unreadable, ignoring: {e}", file=sys.stderr)
         return {}
+
+
+# --------------------------------------------------------------------------
+# Legacy compatibility
+# --------------------------------------------------------------------------
+def pull_state_from_git() -> None:
+    """No-op — persistence moved from git to Turso."""
+    return None
