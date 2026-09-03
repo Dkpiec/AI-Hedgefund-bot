@@ -50,7 +50,8 @@ from execution import (
     is_live_mode,
     sync_open_orders,
 )
-from state_store import load_bot_state, save_bot_state, save_open_orders
+from state_store import load_bot_state, save_bot_state, save_open_orders, pull_state_from_git
+from state_store import load_bot_state, save_bot_state, save_open_orders, pull_state_from_git
 
 # ============================================================================
 # GLOBAL STATE
@@ -87,6 +88,12 @@ bot_state = {
 
 # Restore persisted state (balance, trade_history, open_orders, etc.)
 # so the engine resumes where it left off instead of resetting to $200.
+# Pull latest state from git state branch (survives redeploys)
+try:
+    pull_state_from_git()
+except Exception as e:
+    print(f"[BOT] Git state pull failed: {e}")
+
 load_bot_state(bot_state)
 
 # ============================================================================
