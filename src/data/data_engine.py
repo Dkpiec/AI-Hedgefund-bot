@@ -121,8 +121,15 @@ def filter_universe() -> List[str]:
             continue
 
     if not qualified:
-        # Fall back to all candidates if everything got filtered out
-        qualified = list(CANDIDATE_SYMBOLS)
+        # All candidates were filtered out (price/volume rules). Return empty
+        # rather than falling back to unfiltered CANDIDATE_SYMBOLS — doing so
+        # would let BTC/ETH/BNB through despite the MAX_PRICE_USD rule.
+        # The trading loop handles an empty universe gracefully (no trades fired).
+        print(f"[DATA] filter_universe: all {len(CANDIDATE_SYMBOLS)} candidates filtered out "
+              f"(MAX_PRICE_USD=${MAX_PRICE_USD}, MIN_VOL=${MIN_24H_VOLUME_USDT:,.0f}). "
+              "Returning empty universe — no trades will fire this cycle.")
+        cfg.SYMBOLS = []
+        return []
 
     cfg.SYMBOLS = qualified
     return qualified

@@ -221,9 +221,12 @@ def _success_paper(symbol: str, signal: str, ask_price: float, decision: dict) -
     if ask_price <= 0:
         return {"success": False, "error": f"Invalid ask price for {symbol}"}
 
-    # Skip symbols whose unit price exceeds $2000 — too expensive for our capital base.
-    if ask_price > 2000.0:
-        return {"success": False, "error": f"Symbol {symbol} unit price ${ask_price:.2f} exceeds $2000 ceiling"}
+    # STRICT RULE: reject any symbol whose unit price exceeds MAX_PRICE_USD.
+    # This prevents BTC ($65k), ETH ($3k), BNB ($600+) from being traded
+    # with our small capital base. Rule is intentional and must not be bypassed.
+    from config import MAX_PRICE_USD as _MAX_PRICE
+    if ask_price > _MAX_PRICE:
+        return {"success": False, "error": f"RULE VIOLATION: {symbol} price ${ask_price:.2f} exceeds MAX_PRICE_USD=${_MAX_PRICE:.0f}. Trade blocked."}
 
     from config import get_position_size_for_balance, get_risk_per_trade_for_balance, get_current_tier
 

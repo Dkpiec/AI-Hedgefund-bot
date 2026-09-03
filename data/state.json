@@ -1,29 +1,19 @@
 {
   "starting_balance": 200,
-  "balance": 180.5,
-  "equity": 205.3,
-  "pnl": 5.3,
-  "pnl_pct": 2.65,
-  "trade_history": [
-    {
-      "time": "2026-09-03T04:00:00",
-      "symbol": "BTCUSDT",
-      "pnl": 2.0,
-      "status": "TP_HIT"
-    },
-    {
-      "time": "2026-09-03T04:15:00",
-      "symbol": "ETHUSDT",
-      "pnl": 3.3,
-      "status": "SL_HIT"
-    }
-  ],
-  "cycles_completed": 128,
-  "current_model": "openai/gpt-4o-mini",
-  "started_at": "2026-09-03T03:30:00",
-  "is_running": true,
-  "universe": [
-    "BTCUSDT",
-    "ETHUSDT"
-  ]
+  "balance": 200.0,
+  "equity": 200.0,
+  "free": 200.0,
+  "pnl": 0.0,
+  "pnl_pct": 0.0,
+  "trade_history": [],
+  "cancelled_orders": [],
+  "cycles_completed": 0,
+  "current_model": null,
+  "resolved_model": null,
+  "scan_interval": "5m",
+  "interval": 300,
+  "chart_timeframe": "1h",
+  "started_at": null,
+  "is_running": false,
+  "universe": []
 }
