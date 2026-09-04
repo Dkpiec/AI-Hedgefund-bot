@@ -51,9 +51,9 @@ PAPER_BALANCE_FILE = Path(__file__).resolve().parent.parent / "data" / "paper_ba
 # TRADING CONFIGURATION
 # ============================================================================
 # Timeframe options the user can pick from the dashboard dropdown
-# 1h = chart candles (H1) the AI analyzes; user-approved default 2026-09-02
-CHART_TIMEFRAMES = ["1h"]
-DEFAULT_CHART_TIMEFRAME = "1h"
+# 15m = chart candles (M15) the AI analyzes; user-approved 2026-09-03
+CHART_TIMEFRAMES = ["15m", "1h"]
+DEFAULT_CHART_TIMEFRAME = "15m"
 
 # Loop cycle intervals (how often the AI re-checks the market)
 # Dropdown: 1 min, 5 min, 15 min, 30 min, 1 hour
@@ -65,7 +65,10 @@ SCAN_INTERVALS = {
     "1h": 3600,
 }
 SCAN_INTERVAL_OPTIONS = ["1m", "5m", "15m", "30m", "1h"]
-DEFAULT_SCAN_INTERVAL = "1h"
+DEFAULT_SCAN_INTERVAL = "5m"
+
+# Minimum AI decision confidence score required to fire a trade (0-100)
+CONFIDENCE_THRESHOLD = 60
 
 # Maximum price filter (USD) — skip any symbol priced above this
 # (excludes BTC, ETH, BNB by design; user-set on 2026-09-02)

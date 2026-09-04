@@ -19,6 +19,7 @@ from fastapi.templating import Jinja2Templates
 sys.path.append(str(Path(__file__).parent))
 from config import (
     CANDIDATE_SYMBOLS,
+    CONFIDENCE_THRESHOLD,
     DASHBOARD_HOST,
     DASHBOARD_PORT,
     CHART_TIMEFRAMES,
@@ -420,9 +421,9 @@ async def trading_loop():
                 bot_state["last_symbol"] = symbol
                 bot_state["last_timeframe"] = chart_tf
 
-                # 4. Skip if confidence too low (threshold: 70)
-                if decision.get("confidence_score", 0) < 70:
-                    bot_state["last_logic"] += " (skipped: low confidence)"
+                # 4. Skip if confidence too low (threshold: CONFIDENCE_THRESHOLD)
+                if decision.get("confidence_score", 0) < CONFIDENCE_THRESHOLD:
+                    bot_state["last_logic"] += f" (skipped: confidence {decision.get('confidence_score',0)} < {CONFIDENCE_THRESHOLD})"
                     print(f"[SCAN] {symbol} skip: conf={decision.get('confidence_score',0)} signal={decision.get('signal','?')}")
                     continue
 
