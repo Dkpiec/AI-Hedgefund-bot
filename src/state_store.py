@@ -47,7 +47,8 @@ _pg_schema_ready = False
 
 
 def _pg_conn():
-    if not DATABASE_URL:
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
         return None
     try:
         import psycopg2
@@ -55,7 +56,7 @@ def _pg_conn():
         print("[STATE_STORE] psycopg2 not installed — PG disabled", file=sys.stderr)
         return None
     try:
-        return psycopg2.connect(DATABASE_URL, connect_timeout=10)
+        return psycopg2.connect(url, connect_timeout=10)
     except Exception as e:
         print(f"[STATE_STORE] PG connect failed: {e}", file=sys.stderr)
         return None
