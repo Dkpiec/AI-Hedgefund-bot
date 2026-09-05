@@ -5,6 +5,7 @@ Single-timeframe scanner over a USDT-only universe of liquid Binance
 pairs under MAX_PRICE_USD. User picks the active timeframe from a
 dashboard dropdown; loop interval matches the timeframe (1h=3600s).
 Strict limit orders with 5-min auto-cancel. 5% capital risk per trade.
+Last security update: 2026-09-05 05:45 UTC - Added manual login form.
 """
 import asyncio
 import sys
