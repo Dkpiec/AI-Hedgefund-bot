@@ -134,24 +134,19 @@ def execute_ib15_bracket(symbol: str, bracket: Dict, decision: Dict) -> Dict:
         return {"success": False, "error": f"Price ${ask_price:.2f} exceeds MAX_PRICE_USD={MAX_PRICE_USD}"}
 
     # Position sizing: risk 0.75% of equity per trade (IB-15 default)
+    # Under 4x USDT Futures leverage: required margin = notional / 4.0
+    LEVERAGE = 4
     free = _load_paper_balance()
     if free <= 0:
         return {"success": False, "error": "Paper balance is $0"}
 
-    # Use tiered position sizing from config
-    target_value = get_position_size_for_balance(free)
-    target_value = min(target_value, max(0.0, free - 0.01))
-
-    # For IB-15, position size is based on risk distance
-    # qty = (equity * risk_pct) / risk_distance
-    # But we also respect the tiered position size
     risk_pct = 0.0075  # 0.75% per IB-15 rules
-    target_value = free * risk_pct
-    target_value = min(target_value, free - 0.01)
+    target_risk_usd = free * risk_pct
 
     # Use risk distance to compute qty
-    qty = target_value / risk if risk > 0 else 0
+    qty = target_risk_usd / risk if risk > 0 else 0
     notional = qty * ask_price
+    margin_required = notional / float(LEVERAGE)
 
     if notional < 10.0:
         # Round up to meet $10 minimum
@@ -161,16 +156,21 @@ def execute_ib15_bracket(symbol: str, bracket: Dict, decision: Dict) -> Dict:
         if step > 0 and ask_price > 0:
             target_qty = 10.0 / ask_price
             bumped = (int(target_qty / step) + 1) * step
-            max_affordable = (free - 0.01) / ask_price
-            max_qty = int(max_affordable / step) * step
+            max_affordable_margin = (free - 0.01)
+            max_affordable_notional = max_affordable_margin * LEVERAGE
+            max_qty = int((max_affordable_notional / ask_price) / step) * step if step > 0 else target_qty
             qty = min(bumped, max_qty)
             notional = qty * ask_price
+            margin_required = notional / float(LEVERAGE)
 
     if notional < 10.0:
         return {"success": False, "error": f"Notional ${notional:.2f} below $10 minimum"}
 
-    # Deduct notional from virtual balance
-    new_balance = free - notional
+    if margin_required > free - 0.01:
+        return {"success": False, "error": f"Required 4x margin ${margin_required:.2f} exceeds free cash ${free:.2f}"}
+
+    # Deduct margin required (4x leverage) from virtual cash balance
+    new_balance = free - margin_required
     _save_paper_balance(new_balance)
 
     # Create position record
@@ -182,6 +182,9 @@ def execute_ib15_bracket(symbol: str, bracket: Dict, decision: Dict) -> Dict:
         "order_id": order_id,
         "symbol": symbol,
         "direction": direction,
+        "instrument": "USDT_FUTURES",
+        "leverage": LEVERAGE,
+        "margin_required": margin_required,
         "side": "BUY" if direction == "long" else "SELL",
         "status": "ACTIVE",
         "entry": entry,
@@ -354,6 +357,8 @@ def check_ib15_positions(get_live_ticker) -> List[Dict]:
         if hit:
             # Portion of position being closed
             closed_notional = pos.get("notional", qty * entry) * close_pct
+            leverage = pos.get("leverage", 4)
+            closed_margin = pos.get("margin_required", closed_notional / leverage) * close_pct
 
             # Compute PnL for the closed portion
             if direction == "long":
@@ -361,8 +366,8 @@ def check_ib15_positions(get_live_ticker) -> List[Dict]:
             else:
                 pnl = (entry - exit_price) * qty * close_pct
 
-            # Credit back closed portion's notional + PnL
-            new_balance = _load_paper_balance() + closed_notional + pnl
+            # Credit back closed portion's margin + PnL (4x futures leverage accounting)
+            new_balance = _load_paper_balance() + closed_margin + pnl
             _save_paper_balance(new_balance)
 
             closed_trade = {
