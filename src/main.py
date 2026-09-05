@@ -11,10 +11,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import secrets
+from typing import Optional
+from starlette import status as http_status
 
 sys.path.append(str(Path(__file__).parent))
 from config import (
@@ -22,6 +26,8 @@ from config import (
     CONFIDENCE_THRESHOLD,
     DASHBOARD_HOST,
     DASHBOARD_PORT,
+    DASHBOARD_USERNAME,
+    DASHBOARD_PASSWORD,
     CHART_TIMEFRAMES,
     DEFAULT_CHART_TIMEFRAME,
     DEFAULT_SCAN_INTERVAL,
@@ -104,6 +110,73 @@ app = FastAPI(title="AI Hedge Fund Bot", version="2.0.0")
 BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "dashboard" / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "dashboard" / "templates"))
+
+# ---------------------------------------------------------------------------
+# HTTP Basic Auth dependency (global, protects every route except /login)
+# ---------------------------------------------------------------------------
+security = HTTPBasic(auto_error=False)
+
+def require_auth(credentials: Optional[HTTPBasicCredentials] = Depends(security),
+                 request: Request = None):
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
+        )
+    if not secrets.compare_digest(credentials.username, DASHBOARD_USERNAME) or \
+       not secrets.compare_digest(credentials.password, DASHBOARD_PASSWORD):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
+        )
+    return credentials
+
+# Routes that don't need auth
+PUBLIC_ROUTES = {"/login", "/health"}
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    # Skip auth for public routes and OPTIONS
+    if path in PUBLIC_ROUTES or request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Skip auth for /static/* (dashboard assets)
+    if path.startswith("/static/"):
+        return await call_next(request)
+
+    # Check for Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Basic "):
+        return JSONResponse(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Authentication required"},
+            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
+        )
+
+    import base64
+    try:
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        username, password = decoded.split(":", 1)
+    except Exception:
+        return JSONResponse(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Invalid credentials"},
+            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
+        )
+
+    if not secrets.compare_digest(username, DASHBOARD_USERNAME) or \
+       not secrets.compare_digest(password, DASHBOARD_PASSWORD):
+        return JSONResponse(
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Invalid credentials"},
+            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
+        )
+
+    return await call_next(request)
 
 
 # ============================================================================

@@ -181,6 +181,10 @@ DEFAULT_INTERVAL = 300        # 5 min (matches fastest timeframe)
 DASHBOARD_HOST = "0.0.0.0"
 DASHBOARD_PORT = 8000
 
+# HTTP Basic Auth for /protected routes (empty string disables)
+DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "Dkpiec")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "Amogh@123")
+
 # ============================================================================
 # DATABASE CONFIGURATION
 # ============================================================================
