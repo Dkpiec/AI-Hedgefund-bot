@@ -81,6 +81,23 @@ def _pg_conn():
     except ImportError as ie:
         print(f"[STATE_STORE DEBUG] psycopg2 import failed: {ie}", file=sys.stderr)
         return None
+
+    # Handle unencoded @ in password if present (e.g. postgresql://user:pass@word@host:5432/db)
+    if url.startswith("postgresql://") or url.startswith("postgres://"):
+        try:
+            proto, rest = url.split("://", 1)
+            if "@" in rest:
+                parts = rest.split("@")
+                if len(parts) > 2:
+                    userpass = "@".join(parts[:-1])
+                    hostdb = parts[-1]
+                    if ":" in userpass:
+                        u, p = userpass.split(":", 1)
+                        p_enc = p.replace("@", "%40")
+                        url = f"{proto}://{u}:{p_enc}@{hostdb}"
+        except Exception:
+            pass
+
     try:
         c = psycopg2.connect(url, connect_timeout=10)
         return c
