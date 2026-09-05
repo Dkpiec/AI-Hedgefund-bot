@@ -13,12 +13,13 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import secrets
 from typing import Optional
 from starlette import status as http_status
+import hashlib
 
 sys.path.append(str(Path(__file__).parent))
 from config import (
@@ -112,30 +113,37 @@ app.mount("/static", StaticFiles(directory=str(BASE_DIR / "dashboard" / "static"
 templates = Jinja2Templates(directory=str(BASE_DIR / "dashboard" / "templates"))
 
 # ---------------------------------------------------------------------------
-# HTTP Basic Auth dependency (global, protects every route except /login)
+# Session-based Auth (login form + cookie)
 # ---------------------------------------------------------------------------
-security = HTTPBasic(auto_error=False)
+# Secret for signing session cookies
+SESSION_SECRET = hashlib.sha256((DASHBOARD_USERNAME + DASHBOARD_PASSWORD).encode()).hexdigest()[:32]
 
-def require_auth(credentials: Optional[HTTPBasicCredentials] = Depends(security),
-                 request: Request = None):
-    if credentials is None:
+# Simple in-memory session store (use Redis in production for multi-worker)
+sessions = {}
+
+def create_session_token(username: str) -> str:
+    return hashlib.sha256(f"{username}:{SESSION_SECRET}:{secrets.token_hex(16)}".encode()).hexdigest()
+
+def verify_session(request: Request) -> bool:
+    session_id = request.cookies.get("session_id")
+    if not session_id or session_id not in sessions:
+        return False
+    session = sessions[session_id]
+    if session.get("username") != DASHBOARD_USERNAME:
+        return False
+    return True
+
+def require_login(request: Request):
+    """Dependency that checks session or raises 401 with login redirect"""
+    if not verify_session(request):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=http_status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
-            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
         )
-    if not secrets.compare_digest(credentials.username, DASHBOARD_USERNAME) or \
-       not secrets.compare_digest(credentials.password, DASHBOARD_PASSWORD):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
-        )
-    return credentials
+    return True
 
-# Routes that don't need auth
-PUBLIC_ROUTES = {"/login", "/health"}
-
+# Public routes (no auth needed)
+PUBLIC_ROUTES = {"/login", "/health", "/static"}
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -148,35 +156,59 @@ async def auth_middleware(request: Request, call_next):
     if path.startswith("/static/"):
         return await call_next(request)
 
-    # Check for Authorization header
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Basic "):
-        return JSONResponse(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            content={"detail": "Authentication required"},
-            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
-        )
-
-    import base64
-    try:
-        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
-        username, password = decoded.split(":", 1)
-    except Exception:
-        return JSONResponse(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            content={"detail": "Invalid credentials"},
-            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
-        )
-
-    if not secrets.compare_digest(username, DASHBOARD_USERNAME) or \
-       not secrets.compare_digest(password, DASHBOARD_PASSWORD):
-        return JSONResponse(
-            status_code=http_status.HTTP_401_UNAUTHORIZED,
-            content={"detail": "Invalid credentials"},
-            headers={"WWW-Authenticate": 'Basic realm="AI Hedge Fund Bot"'},
-        )
+    # Check session cookie
+    if not verify_session(request):
+        # Redirect to login page with redirect back to original URL
+        login_url = f"/login?next={path}"
+        return RedirectResponse(url=login_url, status_code=302)
 
     return await call_next(request)
+
+# ---------------------------------------------------------------------------
+# LOGIN ROUTES
+# ---------------------------------------------------------------------------
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, next: str = "/"):
+    return templates.TemplateResponse(request, "login.html", {"next": next})
+
+@app.post("/login", response_class=HTMLResponse)
+async def login_submit(request: Request):
+    form = await request.form()
+    username = str(form.get("username", ""))
+    password = str(form.get("password", ""))
+    next_url = str(form.get("next", "/"))
+
+    if secrets.compare_digest(username, DASHBOARD_USERNAME) and \
+       secrets.compare_digest(password, DASHBOARD_PASSWORD):
+        # Create session
+        session_id = create_session_token(username)
+        sessions[session_id] = {"username": username}
+        
+        response = RedirectResponse(url=next_url, status_code=302)
+        response.set_cookie(
+            key="session_id",
+            value=session_id,
+            httponly=True,
+            secure=False,  # Set True in production with HTTPS
+            samesite="lax",
+            max_age=86400 * 7  # 7 days
+        )
+        return response
+    
+    # Invalid credentials - show login page with error
+    return templates.TemplateResponse(request, "login.html", {
+        "next": next_url,
+        "error": "Invalid username or password"
+    })
+
+@app.get("/logout")
+async def logout(request: Request):
+    session_id = request.cookies.get("session_id")
+    if session_id and session_id in sessions:
+        del sessions[session_id]
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie("session_id")
+    return response
 
 
 # ============================================================================
