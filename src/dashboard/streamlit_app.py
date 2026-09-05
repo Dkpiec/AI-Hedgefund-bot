@@ -286,8 +286,8 @@ def live_panel():
         status_label = "🟢 RUNNING" if state.get("is_running") else "🔴 IDLE"
         st.metric("Engine", status_label)
     with c2:
-        bal = float(state.get("balance") or 0)
-        st.metric("Balance Amount", f"${bal:,.2f}")
+        cash = float(state.get("free") or 0)
+        st.metric("Cash (Free)", f"${cash:,.2f}")
     with c3:
         # Equity = total notional deployed in open positions. This is the
         # amount currently working for us in active trades. NOT balance + unrealized
@@ -333,7 +333,7 @@ def live_panel():
         )
         st.caption(
             f"Starting: **${starting:,.2f}** | "
-            f"Cash (free): **${bal:,.2f}** | "
+            f"Cash: **${cash:,.2f}** | "
             f"Deployed: **${deployed:,.2f}** | "
             f"Total: **${total_portfolio:,.2f}** (cash + deployed sums to total)"
         )
