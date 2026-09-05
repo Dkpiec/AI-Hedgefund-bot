@@ -299,24 +299,21 @@ def live_panel():
         st.metric("Equity", f"${equity_deployed:,.2f}")
     with c4:
         starting = float(state.get("starting_balance") or 0)
-        # sum of realized pnl from closed trades only (no unrealized open PnL)
-        realized_pnl = sum(
-            float(t.get("pnl", 0))
-            for t in (state.get("trade_history") or [])
-            if isinstance(t, dict) and t.get("status") in ("TP_HIT", "SL_HIT")
-            and t.get("pnl") is not None
-        )
-        # Total portfolio = starting balance + realized PnL (the real account value)
-        total_portfolio = starting + realized_pnl
+        # Account for ALL trades: merge backend ledger pnl (authoritative,
+        # survives history pruning) with visible closed-trade sum for the badge.
+        ledger_pnl = float(state.get("pnl") or 0)  # backend: equity - starting
+        # Total Portfolio = backend equity (cash + deployed + unrealized)
+        total_portfolio = float(state.get("equity") or (starting + ledger_pnl))
         st.metric("Total Portfolio", f"${total_portfolio:,.2f}")
     with c5:
-        # Realized P&L only — sum of closed trades' pnl
-        sign = "+" if realized_pnl >= 0 else ""
-        realized_pct = (realized_pnl / starting * 100) if starting else 0.0
+        # Total P&L = total portfolio − starting (ALL trades, ledger-authoritative)
+        total_pnl = total_portfolio - starting
+        sign = "+" if total_pnl >= 0 else ""
+        total_pct = (total_pnl / starting * 100) if starting else 0.0
         st.metric(
-            "Total P&L (Realised)",
-            f"{sign}${realized_pnl:,.2f}",
-            delta=f"{sign}{realized_pct:.2f}%",
+            "Total P&L",
+            f"{sign}${total_pnl:,.2f}",
+            delta=f"{sign}{total_pct:.2f}%",
         )
     with c6:
         sig = state.get("last_signal", "HOLD")
@@ -336,10 +333,9 @@ def live_panel():
         )
         st.caption(
             f"Starting: **${starting:,.2f}** | "
-            f"Free: **${bal:,.2f}** | "
+            f"Cash (free): **${bal:,.2f}** | "
             f"Deployed: **${deployed:,.2f}** | "
-            f"Realised PnL: **${realized_pnl:,.2f}** | "
-            f"Total: **${starting + realized_pnl:,.2f}**"
+            f"Total: **${total_portfolio:,.2f}** (cash + deployed sums to total)"
         )
     st.markdown("---")
 

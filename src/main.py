@@ -683,7 +683,9 @@ async def trading_loop():
                             "risk_per_trade": result.get("risk_per_trade", 0),
                             "tier": result.get("tier", 0),
                         })
-                        bot_state["trade_history"] = bot_state["trade_history"][-100:]
+                        # Keep full history — the dashboard's realized-PnL metric sums
+                        # closed-trade pnl; capping it silently loses money from the books
+                        # (2026-09-05: 8 closed trades / -$0.38 dropped by the -100 cap).
 
             except Exception as e:
                 bot_state["last_logic"] = f"Error on {symbol}: {str(e)[:200]}"

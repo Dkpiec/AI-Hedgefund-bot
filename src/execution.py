@@ -41,7 +41,15 @@ OPEN_ORDERS: Dict[str, Dict] = {}
 OPEN_ORDERS.update(load_open_orders())
 
 # Per-order counter for paper mode order ids (PAPER-1, PAPER-2, ...)
-_paper_id_counter = [0]
+# Initialize from persisted orders so restarts never reissue an existing id
+# (the PAPER-1 collision on 2026-09-05 orphaned a seeded MATICUSDT position).
+_max_seen = 0
+for _oid in OPEN_ORDERS:
+    try:
+        _max_seen = max(_max_seen, int(str(_oid).split("-")[1]))
+    except (IndexError, ValueError):
+        pass
+_paper_id_counter = [max(0, _max_seen)]
 
 # Persisted virtual paper balance (USD). Lives in a file so it survives restarts.
 def _load_paper_balance() -> float:
