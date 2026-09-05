@@ -47,9 +47,10 @@ _pg_schema_ready = False
 
 
 def _get_database_url() -> str:
-    url = os.environ.get("DATABASE_URL", "")
-    if url:
-        return url
+    for key in ["DATABASE_URL", "PG_DATABASE_URL", "POSTGRES_URL"]:
+        url = os.environ.get(key, "")
+        if url:
+            return url
     # Check potential .env locations
     candidates = [
         _REPO_ROOT / ".env",
@@ -62,10 +63,11 @@ def _get_database_url() -> str:
             try:
                 for line in p.read_text().splitlines():
                     line = line.strip()
-                    if line.startswith("DATABASE_URL="):
-                        val = line.split("=", 1)[1].strip("'\"")
-                        if val:
-                            return val
+                    for key in ["DATABASE_URL=", "PG_DATABASE_URL=", "POSTGRES_URL="]:
+                        if line.startswith(key):
+                            val = line.split("=", 1)[1].strip("'\"")
+                            if val:
+                                return val
             except Exception:
                 pass
     return ""
