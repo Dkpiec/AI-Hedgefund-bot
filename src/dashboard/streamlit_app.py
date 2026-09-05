@@ -31,7 +31,11 @@ _logged_in = False
 
 
 def _ensure_login() -> bool:
-    """Login to the backend when needed; keep the session cookie in _http."""
+    """Login to the backend when needed; keep the session cookie in _http.
+
+    Returns True when the request can proceed — either logged in, or the
+    backend has no login (older build) in which case auth isn't required.
+    """
     global _logged_in
     if _logged_in:
         return True
@@ -42,10 +46,14 @@ def _ensure_login() -> bool:
             timeout=10,
             allow_redirects=False,
         )
-        # 302 -> success (cookie set); 200 -> re-rendered login form = bad creds
+        # 302/303 -> success (cookie set); 200 -> re-rendered form = bad creds;
+        # 404/405 -> backend has no login (old build) -> proceed without auth
         if r.status_code in (302, 303):
             _logged_in = True
-        return _logged_in
+            return True
+        if r.status_code in (404, 405):
+            return True
+        return False
     except Exception:
         return False
 
