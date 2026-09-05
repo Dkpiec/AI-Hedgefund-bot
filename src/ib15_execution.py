@@ -21,6 +21,8 @@ from config import (
     get_risk_per_trade_for_balance,
     get_current_tier,
     MAX_PRICE_USD,
+    MAKER_FEE,
+    TAKER_FEE,
 )
 from state_store import load_open_orders, save_open_orders
 
@@ -361,14 +363,20 @@ def check_ib15_positions(get_live_ticker) -> List[Dict]:
             leverage = pos.get("leverage", 4)
             closed_margin = pos.get("margin_required", closed_notional / leverage) * close_pct
 
-            # Compute PnL for the closed portion
+            # Compute PnL for the closed portion (gross, before fees)
             if direction == "long":
-                pnl = (exit_price - entry) * qty * close_pct
+                gross_pnl = (exit_price - entry) * qty * close_pct
             else:
-                pnl = (entry - exit_price) * qty * close_pct
+                gross_pnl = (entry - exit_price) * qty * close_pct
 
-            # Credit back closed portion's margin + PnL (4x futures leverage accounting)
-            new_balance = _load_paper_balance() + closed_margin + pnl
+            # Subtract trading fees: entry (taker) + exit (taker) = 2 * TAKER_FEE * closed_notional
+            entry_fee = closed_notional * TAKER_FEE
+            exit_fee = closed_notional * TAKER_FEE
+            total_fees = entry_fee + exit_fee
+            net_pnl = gross_pnl - total_fees
+
+            # Credit back closed portion's margin + NET PnL (4x futures leverage accounting)
+            new_balance = _load_paper_balance() + closed_margin + net_pnl
             _save_paper_balance(new_balance)
 
             closed_trade = {
@@ -383,7 +391,9 @@ def check_ib15_positions(get_live_ticker) -> List[Dict]:
                 "sl": stop,
                 "tp1": tp1,
                 "tp2": tp2,
-                "pnl": pnl,
+                "pnl": net_pnl,
+                "gross_pnl": gross_pnl,
+                "fees": total_fees,
                 "outcome": hit,
                 "notional": closed_notional,
                 "balance_after": new_balance,

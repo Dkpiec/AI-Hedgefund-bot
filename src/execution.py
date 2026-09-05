@@ -31,6 +31,8 @@ from config import (
     STARTING_BALANCE,
     STRICT_LIMIT_ORDERS,
     TP_PERCENT,
+    MAKER_FEE,
+    TAKER_FEE,
 )
 from state_store import load_open_orders, save_open_orders
 from data.data_engine import get_account_info, get_live_ticker, get_symbol_info
@@ -367,11 +369,14 @@ def check_paper_sl_tp() -> list:
         if not hit:
             continue
 
-        # Compute PnL in USDT
+        # Compute PnL in USDT (net of fees)
         if side == "BUY":
-            pnl = (exit_price - entry) * qty
+            gross_pnl = (exit_price - entry) * qty
+            fee_rate = TAKER_FEE
+            pnl = gross_pnl - (qty * entry * fee_rate)
         else:
-            pnl = (entry - exit_price) * qty
+            gross_pnl = (entry - exit_price) * qty
+            pnl = gross_pnl - (qty * entry * TAKER_FEE)
 
         notional = o.get("notional", qty * entry)
         # Return notional + PnL to virtual balance

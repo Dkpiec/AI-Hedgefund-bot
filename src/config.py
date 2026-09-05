@@ -106,6 +106,10 @@ SL_PERCENT = 0.0075   # 0.75% stop loss
 TP_PERCENT = 0.015    # 1.5% take profit (2:1 R:R)
 RISK_PER_TRADE = 0.06  # 6% of capital per trade (bumped from 5% to keep notional above $10 min after 1st trade)
 
+# Trading fees (Binance spot/maker-taker)
+MAKER_FEE = 0.0003  # 0.03%
+TAKER_FEE = 0.0005  # 0.05%
+
 # ============================================================================
 # TIERED POSITION SIZING (user-set 2026-09-03)
 # ============================================================================
