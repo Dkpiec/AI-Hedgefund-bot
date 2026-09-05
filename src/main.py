@@ -307,6 +307,10 @@ async def set_scan_interval(request: Request):
 @app.get("/api/status")
 async def status():
     # Refresh balance: paper mode reads the virtual persisted balance, live mode reads Binance
+    # IMPORTANT: refresh open orders FIRST — the paper equity math below sums
+    # notionals from bot_state["open_orders"]; computing before the refresh
+    # always sums a stale/empty list (equity = cash only, P&L nonsense).
+    bot_state["open_orders"] = get_open_orders()
     try:
         if is_live_mode():
             acct = get_account_info()
