@@ -206,7 +206,7 @@ def save_bot_state(state: Dict[str, Any]) -> None:
     # Remote: Postgres
     if _pg_save_state(snapshot):
         return
-    print("[STATE_STORE] Postgres unavailable — local cache only", file=sys.stderr)
+    print("[STATE_STORE] Postgres save skipped — local cache used", file=sys.stderr)
 
 
 def load_bot_state(into: Dict[str, Any]) -> bool:
