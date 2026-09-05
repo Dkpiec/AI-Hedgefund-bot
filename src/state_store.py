@@ -46,10 +46,35 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 _pg_schema_ready = False
 
 
-def _pg_conn():
+def _get_database_url() -> str:
     url = os.environ.get("DATABASE_URL", "")
+    if url:
+        return url
+    # Check potential .env locations
+    candidates = [
+        _REPO_ROOT / ".env",
+        Path("/app/.env"),
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parent / ".env",
+    ]
+    for p in candidates:
+        if p.exists():
+            try:
+                for line in p.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("DATABASE_URL="):
+                        val = line.split("=", 1)[1].strip("'\"")
+                        if val:
+                            return val
+            except Exception:
+                pass
+    return ""
+
+
+def _pg_conn():
+    url = _get_database_url()
     if not url:
-        print("[STATE_STORE DEBUG] DATABASE_URL env is EMPTY or missing", file=sys.stderr)
+        print("[STATE_STORE DEBUG] DATABASE_URL env is EMPTY or missing in env and .env files", file=sys.stderr)
         return None
     try:
         import psycopg2
