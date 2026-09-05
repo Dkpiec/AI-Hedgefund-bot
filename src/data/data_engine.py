@@ -182,6 +182,37 @@ def fetch_multi_timeframe_data(symbol: str, timeframes: Optional[List[str]] = No
     }
 
 
+def fetch_raw_klines(symbol: str, interval: str = "15m", limit: int = 215) -> List[List]:
+    """Fetch raw klines list [[open_time, open, high, low, close, vol, ...]] from Binance or synthetic paper data."""
+    client = _get_client()
+    if client is not None:
+        try:
+            klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+            if klines:
+                return klines
+        except Exception as e:
+            print(f"[DATA] Klines fetch error for {symbol} {interval}: {e}")
+
+    # Fallback: synthetic paper klines
+    import random
+    base_price = abs(hash(symbol)) % 500 + 10.0
+    now_ms = int(time.time() * 1000)
+    step_ms = 15 * 60 * 1000 if interval == "15m" else 60 * 60 * 1000
+    rows = []
+    price = base_price
+    for i in range(limit):
+        t = now_ms - (limit - i) * step_ms
+        change = (random.random() - 0.49) * (price * 0.005)
+        o = price
+        c = price + change
+        h = max(o, c) + random.random() * (price * 0.002)
+        l = min(o, c) - random.random() * (price * 0.002)
+        v = 1000.0 + random.random() * 5000.0
+        rows.append([t, str(o), str(h), str(l), str(c), str(v)])
+        price = c
+    return rows
+
+
 def _generate_paper_data(symbol: str, timeframes: List[str]) -> Dict:
     """
     Deterministic paper data when Binance is unreachable.

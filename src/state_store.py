@@ -36,6 +36,7 @@ _PERSISTED_BOT_KEYS = [
     "cycles_completed", "current_model", "resolved_model",
     "scan_interval", "interval", "chart_timeframe",
     "started_at", "is_running", "universe",
+    "ib15_positions", "ib15_trade_log", "ib15_pnl", "ib15_pending_approvals",
 ]
 
 # --------------------------------------------------------------------------

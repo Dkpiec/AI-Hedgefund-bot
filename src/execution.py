@@ -433,10 +433,19 @@ def mark_order_filled(order_id: str) -> Optional[Dict]:
 
 def get_open_orders() -> list:
     """Return a snapshot of currently tracked open orders."""
-    return [
-        {"order_id": oid, **o, "age_seconds": time.time() - o.get("placed_at", 0)}
-        for oid, o in OPEN_ORDERS.items()
-    ]
+    res = []
+    now = time.time()
+    for oid, o in OPEN_ORDERS.items():
+        placed = o.get("placed_at") or o.get("created_at") or 0
+        if isinstance(placed, str):
+            try:
+                from datetime import datetime, timezone
+                placed = datetime.fromisoformat(placed.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                placed = now
+        age = max(0.0, now - float(placed)) if placed else 0.0
+        res.append({"order_id": oid, **o, "age_seconds": round(age, 1)})
+    return res
 
 
 def has_open_position(symbol: str) -> bool:

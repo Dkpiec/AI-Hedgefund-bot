@@ -203,36 +203,48 @@ async def status():
                 bot_state["balance"] = acct["balance"]
                 bot_state["equity"] = acct["equity"]
         else:
-            # Paper mode: pull live virtual balance + compute equity from open positions
+            # Paper mode: pull live virtual balance + compute total equity and balance from open positions
             bal = get_paper_balance()
-            # Mark-to-market open paper positions at current price
             from data.data_engine import get_live_ticker
+            open_notional = 0.0
             unrealized = 0.0
+
+            # 1. Standard paper open orders
             for o in bot_state.get("open_orders", []):
                 if o.get("mode") == "PAPER":
+                    notional = float(o.get("notional", 0.0))
+                    open_notional += notional
                     px = get_live_ticker(o["symbol"])
-                    if px:
-                        if o["side"] == "BUY":
-                            unrealized += (px - o["price"]) * o["qty"]
+                    if px and px > 0 and o.get("price"):
+                        if o.get("side") == "BUY":
+                            unrealized += (px - o["price"]) * o.get("qty", 0.0)
                         else:
-                            unrealized += (o["price"] - px) * o["qty"]
-            bot_state["free"] = bal
-            bot_state["balance"] = bal
-            bot_state["equity"] = bal + unrealized
-        # PnL = realized only (sum of closed trades). Balance already reflects
-        # notional deductions for open positions, so balance - starting_balance
-        # would incorrectly show deployed capital as a loss.
-        realized_pnl = sum(
-            float(t.get("pnl", 0))
-            for t in bot_state.get("trade_history", [])
-            if isinstance(t, dict)
-            and t.get("status") in ("TP_HIT", "SL_HIT")
-            and t.get("pnl") is not None
-        )
-        bot_state["pnl"] = realized_pnl
-        bot_state["pnl_pct"] = (realized_pnl / bot_state["starting_balance"] * 100) if bot_state["starting_balance"] else 0.0
-        bot_state["pnl"] = bot_state["balance"] - bot_state["starting_balance"]
-        bot_state["pnl_pct"] = (bot_state["pnl"] / bot_state["starting_balance"]) * 100
+                            unrealized += (o["price"] - px) * o.get("qty", 0.0)
+
+            # 2. IB-15 open positions
+            try:
+                from ib15_execution import get_ib15_open_positions
+                ib15_pos_list = get_ib15_open_positions()
+                for p in ib15_pos_list:
+                    notional = float(p.get("notional", 0.0))
+                    open_notional += notional
+                    px = get_live_ticker(p["symbol"])
+                    if px and px > 0 and p.get("entry"):
+                        qty = float(p.get("remaining_qty") or p.get("qty") or 0.0)
+                        if p.get("direction") == "long":
+                            unrealized += (px - p["entry"]) * qty
+                        else:
+                            unrealized += (p["entry"] - px) * qty
+            except Exception as e:
+                print(f"[STATUS] IB15 position calc error: {e}")
+
+            bot_state["free"] = round(bal, 2)
+            bot_state["balance"] = round(bal + open_notional, 2)
+            bot_state["equity"] = round(bal + open_notional + unrealized, 2)
+
+        starting_bal = float(bot_state.get("starting_balance", 200.0) or 200.0)
+        bot_state["pnl"] = round(bot_state["equity"] - starting_bal, 2)
+        bot_state["pnl_pct"] = round((bot_state["pnl"] / starting_bal * 100), 2) if starting_bal else 0.0
     except Exception:
         pass
     bot_state["open_orders"] = get_open_orders()
@@ -343,6 +355,55 @@ async def set_model(request: Request):
 
 
 # ============================================================================
+# IB-15 API ENDPOINTS & INTEGRATION
+# ============================================================================
+from ib15_integration import (
+    get_pending_approvals,
+    approve_ib15_setup,
+    reject_ib15_setup,
+    get_ib15_open_positions,
+    update_ib15_positions_loop,
+    sync_ib15_backups_to_bot_state,
+    scan_symbol_for_ib15,
+)
+
+@app.get("/api/ib15/approvals")
+async def list_ib15_approvals():
+    """List all IB-15 setups waiting for explicit user approval."""
+    return {"approvals": get_pending_approvals()}
+
+@app.post("/api/ib15/approve/{approval_id}")
+async def approve_ib15(approval_id: str):
+    """User explicitly approves an IB-15 setup -> places bracket order."""
+    from data.data_engine import get_live_ticker
+    approvals = {a["approval_id"]: a for a in get_pending_approvals()}
+    rec = approvals.get(approval_id)
+    if not rec:
+        return {"error": f"Approval ID {approval_id} not found"}
+    symbol = rec["symbol"]
+    live_price = get_live_ticker(symbol) or rec["signal"]["bracket"]["entry"]
+    res = approve_ib15_setup(approval_id, {"ask": live_price})
+    return res
+
+@app.post("/api/ib15/reject/{approval_id}")
+async def reject_ib15(approval_id: str):
+    """User rejects a pending IB-15 setup."""
+    return reject_ib15_setup(approval_id)
+
+@app.get("/api/ib15/positions")
+async def list_ib15_positions():
+    """List all active IB-15 bracket positions."""
+    positions = get_ib15_open_positions()
+    return {"positions": positions, "count": len(positions)}
+
+@app.post("/api/ib15/backup")
+async def trigger_ib15_backup():
+    """Force backup sync of IB-15 positions, trade log, and PnL to state_store."""
+    res = sync_ib15_backups_to_bot_state()
+    return {"status": "synced", **res}
+
+
+# ============================================================================
 # TRADING LOOP — single active timeframe, interval matches candle period
 # ============================================================================
 async def trading_loop():
@@ -396,6 +457,41 @@ async def trading_loop():
         except Exception as e:
             print(f"[BOT] sync_open_orders error: {e}")
 
+        # 0c. Check IB-15 bracket positions (TP1, BE SL, Chandelier TP2, Time Stop)
+        try:
+            from data.data_engine import get_live_ticker
+            ib15_closed = update_ib15_positions_loop(get_live_ticker)
+            for c in ib15_closed:
+                bot_state["trade_history"].append({
+                    "time": datetime.utcnow().isoformat(),
+                    "asset": c["symbol"],
+                    "signal": c["side"],
+                    "logic": c.get("logic", ""),
+                    "confidence": c.get("confidence", 0),
+                    "timeframe": "15m",
+                    "entry": c["entry"],
+                    "price": c["exit"],
+                    "exit": c["exit"],
+                    "qty": c["qty"],
+                    "sl": c["sl"],
+                    "tp": c.get("tp1", 0),
+                    "order_id": c["order_id"],
+                    "mode": c.get("mode", "PAPER"),
+                    "status": c["outcome"],
+                    "pnl": c["pnl"],
+                    "balance_after": c["balance_after"],
+                    "notional": c.get("notional", 0),
+                    "risk_per_trade": c.get("risk_per_trade", 0),
+                    "tier": c.get("tier", 0),
+                })
+                bot_state["last_logic"] = (
+                    f"IB-15 CLOSED {c['side']} {c['symbol']} @ {c['exit']:.4f} "
+                    f"({c['outcome']}) PnL=${c['pnl']:+.2f}"
+                )
+            bot_state["trade_history"] = bot_state["trade_history"][-200:]
+        except Exception as e:
+            print(f"[BOT] update_ib15_positions_loop error: {e}")
+
         for symbol in bot_state["universe"] or SYMBOLS:
             if not bot_state["is_running"]:
                 break
@@ -412,6 +508,20 @@ async def trading_loop():
                 if not market_data:
                     bot_state["last_logic"] = f"No data for {symbol}"
                     continue
+
+                # 2b. IB-15 strategy scan (on 15m candles)
+                try:
+                    from data.data_engine import fetch_raw_klines
+                    klines_15m = fetch_raw_klines(symbol, "15m", limit=215)
+                    if klines_15m:
+                        ib15_res = scan_symbol_for_ib15(symbol, klines_15m, require_approval=True)
+                        if ib15_res and ib15_res.get("status") == "QUEUED_FOR_APPROVAL":
+                            bot_state["last_logic"] = (
+                                f"IB-15 Setup for {symbol} queued for approval! "
+                                f"(ID: {ib15_res['approval_id']})"
+                            )
+                except Exception as e:
+                    print(f"[BOT] IB-15 scan error on {symbol}: {e}")
 
                 # 3. Get AI decision
                 decision = get_ai_decision(market_data, symbol)
@@ -473,6 +583,10 @@ async def trading_loop():
             datetime.utcnow().timestamp() + interval
         )
         # Persist state before sleeping — ensures open orders, PnL, balance survive restarts.
+        try:
+            sync_ib15_backups_to_bot_state()
+        except Exception as e:
+            print(f"[BOT] sync_ib15_backups error: {e}")
         save_bot_state(bot_state)
         # Sleep in 1s chunks so /api/control stop and /api/scan-interval stay responsive
         for _ in range(interval):
