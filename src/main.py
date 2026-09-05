@@ -212,6 +212,12 @@ async def logout(request: Request):
     return response
 
 
+@app.get("/health")
+async def health():
+    """Liveness probe (no auth) — used by Docker/monitoring."""
+    return {"status": "ok", "ts": datetime.utcnow().isoformat() + "Z"}
+
+
 # ============================================================================
 # STARTUP — filter universe once
 # ============================================================================

@@ -11,6 +11,9 @@ Usage:
 Env vars:
   API_BASE — FastAPI backend URL (default http://ai-hedgefund.161.118.184.188.sslip.io)
              Override via Streamlit secrets for local dev.
+  DASHBOARD_USERNAME / DASHBOARD_PASSWORD — backend login credentials.
+             Auto-login is performed when the backend returns a login
+             redirect (session cookie kept in a shared requests.Session).
 """
 import os
 import streamlit as st
@@ -19,6 +22,32 @@ import pandas as pd
 from datetime import datetime
 
 API_BASE = os.getenv("API_BASE", "http://ai-hedgefund.161.118.184.188.sslip.io")
+DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "Dkpiec")
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "Amogh@123")
+
+# Shared session for cookie persistence across all backend calls
+_http = requests.Session()
+_logged_in = False
+
+
+def _ensure_login() -> bool:
+    """Login to the backend when needed; keep the session cookie in _http."""
+    global _logged_in
+    if _logged_in:
+        return True
+    try:
+        r = _http.post(
+            f"{API_BASE}/login",
+            data={"username": DASHBOARD_USERNAME, "password": DASHBOARD_PASSWORD, "next": "/"},
+            timeout=10,
+            allow_redirects=False,
+        )
+        # 302 -> success (cookie set); 200 -> re-rendered login form = bad creds
+        if r.status_code in (302, 303):
+            _logged_in = True
+        return _logged_in
+    except Exception:
+        return False
 
 # ============================================================================
 # PAGE CONFIG
@@ -61,17 +90,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# HELPERS — cache for 30s so fragment reruns don't hit Render on every tick.
+# HELPERS — cache for 30s so fragment reruns don't hit the backend on every tick.
 # 30s matches the autorefresh interval, so the cache always misses
 # exactly when we want a fresh fetch.
 # ============================================================================
 def _do_fetch_status() -> dict:
     """Raw fetch with no caching. Returns either a real status dict
     (on 200) or a sentinel dict with _transient / _disconnected."""
+    if not _ensure_login():
+        return {"_disconnected": True, "error": "Backend login failed (bad credentials)."}
     try:
-        r = requests.get(f"{API_BASE}/api/status", timeout=10)
+        r = _http.get(f"{API_BASE}/api/status", timeout=10, allow_redirects=False)
         if r.status_code == 200:
             return r.json()
+        if r.status_code in (301, 302, 303, 307):
+            # Session expired server-side -> re-login once, then retry
+            global _logged_in
+            _logged_in = False
+            if _ensure_login():
+                r = _http.get(f"{API_BASE}/api/status", timeout=10, allow_redirects=False)
+                if r.status_code == 200:
+                    return r.json()
         if r.status_code == 429:
             return {"_transient": True, "error": "Backend is busy; will retry next tick."}
         if 500 <= r.status_code < 600:
@@ -99,16 +138,24 @@ def fetch_status_fresh() -> dict:
 
 @st.cache_data(ttl=300)  # model list rarely changes; 5 min is fine
 def fetch_models():
+    if not _ensure_login():
+        return None
     try:
-        r = requests.get(f"{API_BASE}/api/models", timeout=10)
+        r = _http.get(f"{API_BASE}/api/models", timeout=10, allow_redirects=False)
+        if r.status_code in (301, 302, 303, 307):
+            return None  # session dropped; status fetcher will re-login
         return r.json() if r.status_code == 200 else None
     except Exception:
         return None
 
 
 def post(path, payload=None):
+    if not _ensure_login():
+        return {"error": "Backend login failed."}
     try:
-        r = requests.post(f"{API_BASE}{path}", json=payload or {}, timeout=5)
+        r = _http.post(f"{API_BASE}{path}", json=payload or {}, timeout=5, allow_redirects=False)
+        if r.status_code in (301, 302, 303, 307) and _ensure_login():
+            r = _http.post(f"{API_BASE}{path}", json=payload or {}, timeout=5, allow_redirects=False)
         return r.json() if r.status_code == 200 else None
     except Exception as e:
         return {"error": str(e)}
@@ -200,7 +247,7 @@ if st.sidebar.button("🗑️ Clear Trade History"):
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Backend: `Render FastAPI`")
+st.sidebar.caption("Backend: `Coolify FastAPI`")
 st.sidebar.caption("Refresh: every 30 seconds (background)")
 
 # ============================================================================

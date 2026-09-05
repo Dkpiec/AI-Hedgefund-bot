@@ -2,7 +2,7 @@
 IB-15 Execution Engine
 =======================
 Handles bracket order execution, partial TP, trailing stops, time stops,
-and dual backup (Turso + local JSON) for the IB-15 strategy.
+and PostgreSQL backup (+ local JSON cache) for the IB-15 strategy.
 """
 import time
 import json

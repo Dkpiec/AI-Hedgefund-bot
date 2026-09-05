@@ -9,7 +9,7 @@ Handles:
 3. Paper execution with 0.75% equity risk
 4. Ongoing position management (TP1 50% @ 1.5R -> BE, TP2 3.0R / Chandelier, Time Stop)
 5. Dual backup of open positions, trade history, and PnL:
-   - Remote (Turso / Postgres via state_store)
+   - Remote (Postgres via state_store)
    - Local disk JSON/JSONL (/data/ib15_positions.json, /data/ib15_trade_log.jsonl)
 """
 import sys
@@ -197,7 +197,7 @@ def update_ib15_positions_loop(get_live_ticker_fn) -> List[Dict]:
 def sync_ib15_backups_to_bot_state() -> Dict:
     """
     Consolidates IB-15 open positions, trade history, and PnL,
-    and backs them up via state_store (Turso/Postgres + local file).
+    and backs them up via state_store (Postgres + local file).
     """
     positions = get_ib15_open_positions()
 
@@ -223,7 +223,7 @@ def sync_ib15_backups_to_bot_state() -> Dict:
         "ib15_pending_approvals": list(_PENDING_APPROVALS.values()),
     }
 
-    # Backup to bot_state store (Turso / Postgres / local state.json)
+    # Backup to bot_state store (Postgres / local state.json)
     save_bot_state(backup_payload)
 
     return {
