@@ -133,18 +133,19 @@ def execute_ib15_bracket(symbol: str, bracket: Dict, decision: Dict) -> Dict:
     if ask_price > MAX_PRICE_USD:
         return {"success": False, "error": f"Price ${ask_price:.2f} exceeds MAX_PRICE_USD={MAX_PRICE_USD}"}
 
-    # Position sizing: risk 0.75% of equity per trade (IB-15 default)
+    # Position sizing: as per user's tiered position sizing schedule
+    # Balance $0-$400 -> $10 notional, +$10 for every +$200 balance growth
     # Under 4x USDT Futures leverage: required margin = notional / 4.0
     LEVERAGE = 4
     free = _load_paper_balance()
     if free <= 0:
         return {"success": False, "error": "Paper balance is $0"}
 
-    risk_pct = 0.0075  # 0.75% per IB-15 rules
-    target_risk_usd = free * risk_pct
+    tier_size = get_position_size_for_balance(free)
+    target_notional = max(10.0, tier_size)
 
-    # Use risk distance to compute qty
-    qty = target_risk_usd / risk if risk > 0 else 0
+    # Calculate qty from target notional
+    qty = target_notional / ask_price if ask_price > 0 else 0
     notional = qty * ask_price
     margin_required = notional / float(LEVERAGE)
 
