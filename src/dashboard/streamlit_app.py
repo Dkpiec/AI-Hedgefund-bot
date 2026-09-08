@@ -122,17 +122,17 @@ st.markdown("""
         border: 1px solid #1E3D29 !important;
     }
 
-    /* Font-size: reduced to 70% of current (0.84em base) */
+    /* Clean, comfortable, highly-readable font sizing */
     html, body, [data-testid="stAppViewContainer"], .main, .block-container {
-        font-size: 0.84em !important;
+        font-size: 0.98em !important;
     }
-    [data-testid="stMetricValue"] { font-size: 0.84em !important; }
-    [data-testid="stMetricLabel"] { font-size: 0.84em !important; }
-    [data-testid="stMetricDelta"]  { font-size: 0.84em !important; }
-    [data-testid="stHeader"] { font-size: 0.84em !important; }
-    h1 { font-size: 1.68em !important; }
-    h2 { font-size: 1.365em !important; }
-    h3 { font-size: 1.155em !important; }
+    [data-testid="stMetricValue"] { font-size: 1.3em !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.95em !important; }
+    [data-testid="stMetricDelta"]  { font-size: 0.95em !important; }
+    [data-testid="stHeader"] { font-size: 1.0em !important; }
+    h1 { font-size: 2.0em !important; }
+    h2 { font-size: 1.55em !important; }
+    h3 { font-size: 1.25em !important; }
 </style>
 """, unsafe_allow_html=True)
 
