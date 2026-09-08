@@ -20,6 +20,10 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime
+import zoneinfo
+
+def _get_ist_now():
+    return datetime.now(zoneinfo.ZoneInfo("Asia/Kolkata"))
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 DASHBOARD_USERNAME = os.getenv("DASHBOARD_USERNAME", "Dkpiec")
@@ -81,19 +85,54 @@ st.markdown("""
     .stButton button:hover { background: #75E063; color: #0B120E; }
     [data-testid="stMetricValue"] { color: #75E063; }
     [data-testid="stMetricDelta"] { color: #FFD700; }
-    .stDataFrame { background-color: #0B120E; }
-    div[data-baseweb="select"] { background-color: #000; }
-    /* Font-size: 120% of Streamlit default (user requested +50% from the 80% we shipped) */
-    html, body, [data-testid="stAppViewContainer"], .main, .block-container {
-        font-size: 1.2em !important;
+    
+    /* High-contrast styling for tables, execution logs & open positions */
+    [data-testid="stDataFrame"], .stDataFrame {
+        background-color: #0E1A14 !important;
+        border: 1px solid #234D35 !important;
+        border-radius: 6px;
     }
-    [data-testid="stMetricValue"] { font-size: 1.2em !important; }
-    [data-testid="stMetricLabel"] { font-size: 1.2em !important; }
-    [data-testid="stMetricDelta"]  { font-size: 1.2em !important; }
-    [data-testid="stHeader"] { font-size: 1.2em !important; }
-    h1 { font-size: 2.4em !important; }
-    h2 { font-size: 1.95em !important; }
-    h3 { font-size: 1.65em !important; }
+    [data-testid="stDataFrame"] *, .stDataFrame * {
+        color: #FFFFFF !important;
+    }
+    div[data-testid="stDataFrame"] [role="gridcell"],
+    div[data-testid="stDataFrame"] [role="columnheader"],
+    div[data-testid="stDataFrame"] div,
+    div[data-testid="stDataFrame"] span {
+        color: #FFFFFF !important;
+        font-weight: 500 !important;
+    }
+    div[data-baseweb="select"] { background-color: #000; color: #75E063; }
+    div[data-testid="stNotification"] {
+        background-color: #0E1A14 !important;
+        color: #75E063 !important;
+        border: 1px solid #75E063 !important;
+    }
+    div[data-testid="stMarkdownContainer"] p, 
+    div[data-testid="stMarkdownContainer"] span,
+    div[data-testid="stMarkdownContainer"] li {
+        color: #E0E0E0 !important;
+    }
+    .stCaption, [data-testid="stCaptionContainer"] {
+        color: #9EE69E !important;
+    }
+    code, pre {
+        background-color: #050B08 !important;
+        color: #75E063 !important;
+        border: 1px solid #1E3D29 !important;
+    }
+
+    /* Font-size: reduced to 70% of current (0.84em base) */
+    html, body, [data-testid="stAppViewContainer"], .main, .block-container {
+        font-size: 0.84em !important;
+    }
+    [data-testid="stMetricValue"] { font-size: 0.84em !important; }
+    [data-testid="stMetricLabel"] { font-size: 0.84em !important; }
+    [data-testid="stMetricDelta"]  { font-size: 0.84em !important; }
+    [data-testid="stHeader"] { font-size: 0.84em !important; }
+    h1 { font-size: 1.68em !important; }
+    h2 { font-size: 1.365em !important; }
+    h3 { font-size: 1.155em !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -402,7 +441,15 @@ def live_panel():
         desired_o = ["time", "asset", "signal", "status", "confidence",
                      "price", "sl", "tp", "qty", "notional", "mode"]
         cols_o = [c for c in desired_o if c in odf.columns]
-        st.dataframe(odf[cols_o], use_container_width=True, hide_index=True)
+        st.dataframe(
+            odf[cols_o].style.set_properties(**{
+                'background-color': '#0E1A14',
+                'color': '#FFFFFF',
+                'border-color': '#234D35'
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
 
     # --- Execution feed (filled/closed trades) ---
     st.header("📜 Execution Feed")
@@ -425,7 +472,15 @@ def live_panel():
         desired = ["time", "asset", "signal", "status", "outcome", "pnl",
                    "balance_after", "confidence", "price", "sl", "tp", "mode"]
         cols = [c for c in desired if c in df.columns]
-        st.dataframe(df[cols], use_container_width=True, hide_index=True)
+        st.dataframe(
+            df[cols].style.set_properties(**{
+                'background-color': '#0E1A14',
+                'color': '#FFFFFF',
+                'border-color': '#234D35'
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
 
     # Equity curve
     # Show realised PnL curve: starting_balance + cumulative sum of pnl from
@@ -484,6 +539,6 @@ def live_panel():
             "Curve will populate as trades close (TP/SL hit)."
         )
 
-    st.caption(f"Last refresh: {datetime.now().strftime('%H:%M:%S')} IST (auto, every 30s)")
+    st.caption(f"Last refresh: {_get_ist_now().strftime('%H:%M:%S')} IST (auto, every 30s)")
 
 live_panel()

@@ -1,11 +1,6 @@
-[server]
-port = 8501
-headless = true
-enableCORS = false
-enableXsrfProtection = false
-
 [theme]
 primaryColor = "#75E063"
 backgroundColor = "#0B120E"
-secondaryBackgroundColor = "#0E1410"
-font = "JetBrains Mono"
+secondaryBackgroundColor = "#121E17"
+textColor = "#FFFFFF"
+font = "monospace"

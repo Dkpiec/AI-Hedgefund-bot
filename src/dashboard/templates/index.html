@@ -294,15 +294,15 @@
                   '<span style="background:' + sideColor + ';color:#0B120E;padding:2px 6px;border-radius:3px;font-weight:bold;font-size:10px;">' + side + '</span>' +
                   '<span style="color:#fff;font-weight:bold;">' + (o.symbol || '?') + '</span>' +
                   tf +
-                  '<span style="color:#888;margin-left:6px;">qty: ' + qty + '</span>' +
+                  '<span style="color:#C8E6C9;margin-left:6px;">qty: ' + qty + '</span>' +
                 '</div>' +
-                '<div style="color:#888;font-size:10px;">' +
+                '<div style="color:#E0E0E0;font-size:10px;">' +
                   'entry: ' + price + ' · sl: ' + sl + ' · tp: ' + tp +
                 '</div>' +
               '</div>' +
               '<div style="text-align:right;">' +
                 '<div style="color:' + ageColor + ';font-weight:bold;">' + ageStr + '</div>' +
-                '<div style="color:#666;font-size:9px;">' + orderId + '</div>' +
+                '<div style="color:#A0C8A0;font-size:9px;">' + orderId + '</div>' +
               '</div>' +
             '</div>';
           }).join('');
@@ -388,10 +388,10 @@
                 <span style="color:${signalColor};font-weight:bold;">${t.signal} ${t.asset}</span>
                 <span style="${tagStyle}">${outcomeText}</span>
               </div>
-              <span style="color:#666;font-size:10px;">${new Date(t.time).toLocaleTimeString()}</span>
+              <span style="color:#A0C8A0;font-size:10px;">${new Date(t.time).toLocaleTimeString()}</span>
             </div>
-            <div style="color:#9ca3af;margin:4px 0;">${t.logic || ''}</div>
-            <div style="color:#666;font-size:10px;">
+            <div style="color:#E0E0E0;margin:4px 0;">${t.logic || ''}</div>
+            <div style="color:#C8E6C9;font-size:10px;">
               <span style="color:${assetColor}">●</span>
               Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%
             </div>
