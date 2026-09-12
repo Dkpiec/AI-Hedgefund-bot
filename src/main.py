@@ -144,7 +144,7 @@ def require_login(request: Request):
     return True
 
 # Public routes (no auth needed)
-PUBLIC_ROUTES = {"/login", "/health", "/static"}
+PUBLIC_ROUTES = {"/login", "/health", "/static", "/api/status"}
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
