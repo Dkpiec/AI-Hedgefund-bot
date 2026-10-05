@@ -56,6 +56,18 @@ _paper_id_counter = [max(0, _max_seen)]
 # Persisted virtual paper balance (USD). Lives in a file so it survives restarts.
 def _load_paper_balance() -> float:
     try:
+        from state_store import _pg_load_state
+        pg_state = _pg_load_state()
+        if pg_state and "free" in pg_state and pg_state["free"] is not None:
+            val = float(pg_state["free"])
+            try:
+                PAPER_BALANCE_FILE.write_text(f"{val:.6f}\n")
+            except Exception:
+                pass
+            return val
+    except Exception:
+        pass
+    try:
         return float(PAPER_BALANCE_FILE.read_text().strip())
     except Exception:
         return float(STARTING_BALANCE)
@@ -66,6 +78,11 @@ def _save_paper_balance(balance: float) -> None:
         PAPER_BALANCE_FILE.write_text(f"{balance:.6f}\n")
     except Exception as e:
         print(f"[EXEC] Could not persist paper balance: {e}")
+    try:
+        from state_store import _pg_save_state
+        _pg_save_state({"free": balance})
+    except Exception:
+        pass
 
 
 def get_paper_balance() -> float:

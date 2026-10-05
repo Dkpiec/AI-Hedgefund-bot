@@ -101,10 +101,10 @@ CANDIDATE_SYMBOLS = [
 SYMBOLS = []
 
 # Risk management
-# Crypto is 5-10x more volatile than Forex, so we need wider stops and targets
-SL_PERCENT = 0.0075   # 0.75% stop loss
-TP_PERCENT = 0.015    # 1.5% take profit (2:1 R:R)
-RISK_PER_TRADE = 0.06  # 6% of capital per trade (bumped from 5% to keep notional above $10 min after 1st trade)
+# Adaptive crypto brackets: 1.5% SL / 3.0% TP (2:1 minimum R:R) to absorb 15m volatility
+SL_PERCENT = 0.0150   # 1.50% stop loss (widened from 0.75% to avoid noise stop-outs)
+TP_PERCENT = 0.0300   # 3.00% take profit (2:1 R:R)
+RISK_PER_TRADE = 0.06  # 6% of capital per trade
 
 # Trading fees (Binance spot/maker-taker)
 MAKER_FEE = 0.0003  # 0.03%

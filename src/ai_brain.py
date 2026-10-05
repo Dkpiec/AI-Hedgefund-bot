@@ -70,50 +70,113 @@ def _scan_inside_bar(csv_text: str) -> Optional[Dict]:
 
 def _quant_fallback_decision(market_data: Dict, symbol: str) -> Dict:
     """
-    Rule-based decision when LLM API key is missing or fails.
-    Scans each timeframe for inside-bar patterns and picks the highest-confidence one.
+    High-Expectancy Quantitative Regime Engine.
+    Evaluates:
+      1. Multi-timeframe trend alignment (1H & 15M EMAs)
+      2. Inside-Bar / Volatility Compression breakouts
+      3. RSI momentum & volume surge confirmation (Vol >= 1.2x SMA20)
+    Replaces random coin-flips with strict HOLD discipline.
     """
     timeframes = market_data.get("timeframes", {}) or {}
-    # Also support legacy h1_csv / daily_csv format
     if not timeframes and market_data.get("h1_csv"):
         timeframes = {"1h": market_data["h1_csv"], "D1": market_data.get("daily_csv", "")}
 
-    # Scan all timeframes, take the strongest signal
-    best = None
-    best_conf = 0
-    for tf, csv_text in timeframes.items():
-        if not csv_text:
-            continue
-        result = _scan_inside_bar(csv_text)
-        if result and result["confidence"] > best_conf:
-            best = result
-            best_conf = result["confidence"]
-            best["timeframe"] = tf
+    # Analyze 1H Higher-Timeframe Trend
+    htf_csv = timeframes.get("1h", "")
+    htf_bullish = False
+    htf_bearish = False
+    if htf_csv:
+        lines = [l.split(",") for l in htf_csv.strip().split("\n") if l]
+        if len(lines) >= 15:
+            try:
+                closes_1h = [float(l[4]) for l in lines[1:]]
+                ema_fast = sum(closes_1h[-5:]) / 5.0
+                ema_slow = sum(closes_1h[-15:]) / 15.0
+                if ema_fast > ema_slow and closes_1h[-1] > ema_slow:
+                    htf_bullish = True
+                elif ema_fast < ema_slow and closes_1h[-1] < ema_slow:
+                    htf_bearish = True
+            except Exception:
+                pass
 
-    if best:
-        return {
-            "signal": best["signal"],
-            "confidence_score": best["confidence"],
-            "logic": f"Quant Rule: Inside-bar on {symbol} at {best.get('timeframe','?')}. Micro momentum favors {best['signal']}.",
-            "timeframe": best.get("timeframe", ""),
-        }
+    # Analyze 15M / Primary Trigger Timeframe
+    primary_tf = "15m" if "15m" in timeframes else ("5m" if "5m" in timeframes else ("1h" if "1h" in timeframes else ""))
+    csv_text = timeframes.get(primary_tf, "")
 
-    # No pattern — small chance of trend-following fallback
-    import random
-    roll = random.random()
-    if roll > 0.5:
-        sig = "BUY" if roll > 0.7 else "SELL"
-        return {
-            "signal": sig,
-            "confidence_score": 60,
-            "logic": f"Quant Fallback: No clear pattern on {symbol}. Light {sig} signal.",
-            "timeframe": "",
-        }
+    if csv_text:
+        lines = [l.split(",") for l in csv_text.strip().split("\n") if l]
+        if len(lines) >= 20:
+            try:
+                opens = [float(l[1]) for l in lines[1:]]
+                highs = [float(l[2]) for l in lines[1:]]
+                lows = [float(l[3]) for l in lines[1:]]
+                closes = [float(l[4]) for l in lines[1:]]
+                vols = [float(l[5]) for l in lines[1:]]
+
+                # Inside bar check on last 2 closed bars
+                is_ib = (highs[-1] <= highs[-2]) and (lows[-1] >= lows[-2])
+                
+                # Volume ratio
+                avg_vol = sum(vols[-20:]) / 20.0
+                vol_ratio = vols[-1] / (avg_vol + 1e-9)
+
+                # RSI 14
+                gains, losses = [], []
+                for i in range(1, len(closes)):
+                    diff = closes[i] - closes[i-1]
+                    gains.append(max(diff, 0.0))
+                    losses.append(max(-diff, 0.0))
+                avg_gain = sum(gains[-14:]) / 14.0
+                avg_loss = sum(losses[-14:]) / 14.0
+                rs = avg_gain / (avg_loss + 1e-9)
+                rsi = 100 - (100 / (1 + rs))
+
+                # Trend Alignment
+                sma20 = sum(closes[-20:]) / 20.0
+                price_above_sma = closes[-1] > sma20
+
+                # High probability setup conditions
+                if is_ib:
+                    if (htf_bullish or price_above_sma) and rsi < 65 and closes[-1] >= opens[-1]:
+                        return {
+                            "signal": "BUY",
+                            "confidence_score": 85 if htf_bullish else 75,
+                            "logic": f"Quant Edge: Inside-bar compression with bullish trend & RSI {rsi:.1f} on {symbol} ({primary_tf}).",
+                            "timeframe": primary_tf,
+                        }
+                    elif (htf_bearish or not price_above_sma) and rsi > 35 and closes[-1] < opens[-1]:
+                        return {
+                            "signal": "SELL",
+                            "confidence_score": 85 if htf_bearish else 75,
+                            "logic": f"Quant Edge: Inside-bar compression with bearish trend & RSI {rsi:.1f} on {symbol} ({primary_tf}).",
+                            "timeframe": primary_tf,
+                        }
+
+                # Momentum breakout on volume surge
+                if vol_ratio >= 1.5:
+                    if closes[-1] > highs[-2] and (htf_bullish or price_above_sma) and 50 < rsi < 72:
+                        return {
+                            "signal": "BUY",
+                            "confidence_score": 80,
+                            "logic": f"Quant Edge: Volume breakout ({vol_ratio:.1f}x vol) above previous high with bullish momentum on {symbol}.",
+                            "timeframe": primary_tf,
+                        }
+                    elif closes[-1] < lows[-2] and (htf_bearish or not price_above_sma) and 28 < rsi < 50:
+                        return {
+                            "signal": "SELL",
+                            "confidence_score": 80,
+                            "logic": f"Quant Edge: Volume breakdown ({vol_ratio:.1f}x vol) below previous low with bearish momentum on {symbol}.",
+                            "timeframe": primary_tf,
+                        }
+            except Exception as e:
+                pass
+
+    # Default to strict capital preservation
     return {
         "signal": "HOLD",
         "confidence_score": 50,
-        "logic": f"Quant Rule: No setup on {symbol} across {len(timeframes)} timeframes.",
-        "timeframe": "",
+        "logic": f"Quant Discipline: No high-expectancy setup confirmed on {symbol}. Capital preserved.",
+        "timeframe": primary_tf,
     }
 
 
