@@ -27,7 +27,7 @@ def bs_put_price(S: float, K: float, T: float, r: float, sigma: float) -> float:
     d2 = d1 - sigma * np.sqrt(T)
     return float(K * np.exp(-r * T) * norm_cdf(-d2) - S * norm_cdf(-d1))
 
-def evaluate_condor_setup(df_1h: pd.DataFrame, symbol: str = "BTCUSDT") -> Optional[Dict[str, Any]]:
+def evaluate_condor_setup(df_1h: pd.DataFrame, symbol: str = "BTCUSDT", hours_to_expiry: float = 8.0) -> Optional[Dict[str, Any]]:
     """
     Evaluates current candle data to construct 0-DTE Trend-Skewed Iron Condor.
     Requires at least 50 bars of 1h data.
@@ -52,8 +52,8 @@ def evaluate_condor_setup(df_1h: pd.DataFrame, symbol: str = "BTCUSDT") -> Optio
     cur_price = float(df['close'].iloc[-1])
     is_bullish = cur_price > ema50
     
-    # 8 hours to daily settlement (08:00 UTC)
-    T0 = 8.0 / (365.0 * 24.0)
+    # Time to settlement in years
+    T0 = max(0.5, float(hours_to_expiry)) / (365.0 * 24.0)
     r = 0.04
     daily_sd = cur_price * (iv * np.sqrt(T0))
     
@@ -85,6 +85,7 @@ def evaluate_condor_setup(df_1h: pd.DataFrame, symbol: str = "BTCUSDT") -> Optio
         "underlying_price": cur_price,
         "iv": iv,
         "is_bullish": is_bullish,
+        "hours_to_expiry": hours_to_expiry,
         "strikes": {
             "short_call": K_sc,
             "long_call": K_lc,
