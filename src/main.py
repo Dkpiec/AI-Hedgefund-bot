@@ -356,22 +356,23 @@ async def status():
 
             # 3. 0-DTE Options Condor forward-test state integration
             try:
-                import sys
-                sys.path.insert(0, '/opt/data/trading-agent')
-                from trading.crypto_options_manager import load_crypto_options_state
+                try:
+                    from src.crypto_options_manager import load_crypto_options_state
+                except ImportError:
+                    from crypto_options_manager import load_crypto_options_state
                 condor_state = load_crypto_options_state()
                 bot_state["crypto_options_condor"] = {
                     "strategy_id": condor_state.get("strategy_id"),
                     "name": condor_state.get("name"),
-                    "cash": condor_state.get("cash", 200.0),
-                    "deployed": condor_state.get("deployed", 0.0),
+                    "cash": condor_state.get("cash", 170.0),
+                    "deployed": condor_state.get("deployed", 30.0),
                     "open_positions": condor_state.get("open_positions", []),
                     "closed_trades": condor_state.get("closed_trades", []),
                     "total_net_pnl": condor_state.get("total_net_pnl", 0.0),
                     "win_rate_pct": condor_state.get("win_rate_pct", 0.0)
                 }
-            except Exception:
-                pass
+            except Exception as condor_err:
+                print(f"[STATUS] Condor load error: {condor_err}")
 
             bot_state["free"] = round(bal, 2)
             bot_state["balance"] = round(bal + open_notional, 2)
