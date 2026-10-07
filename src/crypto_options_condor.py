@@ -64,18 +64,18 @@ def evaluate_condor_setup(df_1h: pd.DataFrame, symbol: str = "BTCUSDT") -> Optio
         call_mult, put_mult = 1.6, 2.0
         
     step = 100 if symbol.startswith("BTC") else 10
-    K_sc = round(cur_price + call_mult * daily_sd, -2 if symbol.startswith("BTC") else -1)
-    K_lc = K_sc + 2 * step
-    K_sp = round(cur_price - put_mult * daily_sd, -2 if symbol.startswith("BTC") else -1)
-    K_lp = K_sp - 2 * step
+    K_sc = float(round(cur_price + call_mult * daily_sd, -2 if symbol.startswith("BTC") else -1))
+    K_lc = float(K_sc + 2 * step)
+    K_sp = float(round(cur_price - put_mult * daily_sd, -2 if symbol.startswith("BTC") else -1))
+    K_lp = float(K_sp - 2 * step)
     
-    sc_p = bs_call_price(cur_price, K_sc, T0, r, iv)
-    lc_p = bs_call_price(cur_price, K_lc, T0, r, iv)
-    sp_p = bs_put_price(cur_price, K_sp, T0, r, iv)
-    lp_p = bs_put_price(cur_price, K_lp, T0, r, iv)
+    sc_p = float(bs_call_price(cur_price, K_sc, T0, r, iv))
+    lc_p = float(bs_call_price(cur_price, K_lc, T0, r, iv))
+    sp_p = float(bs_put_price(cur_price, K_sp, T0, r, iv))
+    lp_p = float(bs_put_price(cur_price, K_lp, T0, r, iv))
     
-    net_credit = (sc_p - lc_p) + (sp_p - lp_p)
-    max_wing_risk = (2 * step) - net_credit
+    net_credit = float((sc_p - lc_p) + (sp_p - lp_p))
+    max_wing_risk = float((2 * step) - net_credit)
     
     if net_credit <= 0 or max_wing_risk <= 0:
         return None

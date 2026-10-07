@@ -153,22 +153,22 @@
           <div class="flex items-center gap-2">
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
             <h3 class="text-base font-bold text-cyan-400 uppercase tracking-wide">0-DTE Trend-Skewed Iron Condor</h3>
-            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-700 text-cyan-300 font-mono">15% Max Risk / $200 Cap</span>
+            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-700 text-cyan-300 font-mono">Max 2 Trades (BTC+ETH) / 15% Risk / 30m Scan</span>
           </div>
-          <span id="condor-status-tag" class="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-600 text-emerald-400">ACTIVE</span>
+          <span id="condor-status-tag" class="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-600 text-emerald-400">ACTIVE (30m)</span>
         </div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
           <div class="bg-black/60 p-2 rounded border border-gray-800">
             <div class="text-[10px] text-gray-400 uppercase">Capital Split</div>
-            <div class="text-xs font-bold text-gray-200" id="condor-capital-split">$170 Cash / $30 Deployed</div>
+            <div class="text-xs font-bold text-gray-200" id="condor-capital-split">$150.30 Cash / $64.42 Deployed</div>
           </div>
           <div class="bg-black/60 p-2 rounded border border-gray-800">
-            <div class="text-[10px] text-gray-400 uppercase">Net Credit Target</div>
-            <div class="text-xs font-bold text-emerald-400" id="condor-credit-target">+65% Theta Decay</div>
+            <div class="text-[10px] text-gray-400 uppercase">Target &amp; Exits</div>
+            <div class="text-xs font-bold text-emerald-400" id="condor-credit-target">+65% TP / -0.7R SL</div>
           </div>
           <div class="bg-black/60 p-2 rounded border border-gray-800">
-            <div class="text-[10px] text-gray-400 uppercase">Stop Loss Bound</div>
-            <div class="text-xs font-bold text-rose-400" id="condor-sl-bound">-70% Max Risk ($21 SL)</div>
+            <div class="text-[10px] text-gray-400 uppercase">Max Positions</div>
+            <div class="text-xs font-bold text-cyan-300" id="condor-max-pos">2 Concurrent (BTC/ETH)</div>
           </div>
           <div class="bg-black/60 p-2 rounded border border-gray-800">
             <div class="text-[10px] text-gray-400 uppercase">Strategy P&amp;L</div>
@@ -176,7 +176,7 @@
           </div>
         </div>
         <div id="condor-positions-list" class="space-y-2">
-          <p class="text-xs text-gray-500">Scanning 0-DTE BTC/ETH Delta 15-20 Wings...</p>
+          <p class="text-xs text-gray-500">Scanning 0-DTE BTC/ETH Delta 15-20 Wings every 30 mins...</p>
         </div>
       </div>
 
