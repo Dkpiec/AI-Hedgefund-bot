@@ -8,22 +8,24 @@ Friction: Binance Options 0.02% Maker (short entry) / 0.03% Taker (long wing / e
 import math
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
 from typing import Dict, Any, Optional
+
+def norm_cdf(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 def bs_call_price(S: float, K: float, T: float, r: float, sigma: float) -> float:
     if T <= 0:
         return max(0.0, S - K)
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
-    return float(S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2))
+    return float(S * norm_cdf(d1) - K * np.exp(-r * T) * norm_cdf(d2))
 
 def bs_put_price(S: float, K: float, T: float, r: float, sigma: float) -> float:
     if T <= 0:
         return max(0.0, K - S)
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
-    return float(K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1))
+    return float(K * np.exp(-r * T) * norm_cdf(-d2) - S * norm_cdf(-d1))
 
 def evaluate_condor_setup(df_1h: pd.DataFrame, symbol: str = "BTCUSDT") -> Optional[Dict[str, Any]]:
     """
