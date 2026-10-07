@@ -146,8 +146,41 @@
     </div>
 
     <!-- Right: Execution Feed -->
-    <div class="lg:col-span-2">
-      <div class="panel p-4 rounded mb-4" id="open-orders-panel">
+    <div class="lg:col-span-2 space-y-4">
+      <!-- 0-DTE Crypto Options Condor Panel -->
+      <div class="panel p-4 rounded" id="crypto-condor-panel">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            <h3 class="text-base font-bold text-cyan-400 uppercase tracking-wide">0-DTE Trend-Skewed Iron Condor</h3>
+            <span class="text-xs px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-700 text-cyan-300 font-mono">15% Max Risk / $200 Cap</span>
+          </div>
+          <span id="condor-status-tag" class="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-950 border border-emerald-600 text-emerald-400">ACTIVE</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+          <div class="bg-black/60 p-2 rounded border border-gray-800">
+            <div class="text-[10px] text-gray-400 uppercase">Capital Split</div>
+            <div class="text-xs font-bold text-gray-200" id="condor-capital-split">$170 Cash / $30 Deployed</div>
+          </div>
+          <div class="bg-black/60 p-2 rounded border border-gray-800">
+            <div class="text-[10px] text-gray-400 uppercase">Net Credit Target</div>
+            <div class="text-xs font-bold text-emerald-400" id="condor-credit-target">+65% Theta Decay</div>
+          </div>
+          <div class="bg-black/60 p-2 rounded border border-gray-800">
+            <div class="text-[10px] text-gray-400 uppercase">Stop Loss Bound</div>
+            <div class="text-xs font-bold text-rose-400" id="condor-sl-bound">-70% Max Risk ($21 SL)</div>
+          </div>
+          <div class="bg-black/60 p-2 rounded border border-gray-800">
+            <div class="text-[10px] text-gray-400 uppercase">Strategy P&amp;L</div>
+            <div class="text-xs font-bold text-gray-200" id="condor-pnl-val">$0.00 (0.0%)</div>
+          </div>
+        </div>
+        <div id="condor-positions-list" class="space-y-2">
+          <p class="text-xs text-gray-500">Scanning 0-DTE BTC/ETH Delta 15-20 Wings...</p>
+        </div>
+      </div>
+
+      <div class="panel p-4 rounded" id="open-orders-panel">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-lg neon-text">Open Positions
             <span id="open-orders-count" class="text-xs text-gray-500 ml-2">(0)</span>
@@ -262,6 +295,50 @@
       document.getElementById('cycles').textContent = state.cycles_completed || 0;
       document.getElementById('mode-label').textContent = state.paper_mode ? 'PAPER (no real orders)' : 'LIVE';
       document.getElementById('mode-label').style.color = state.paper_mode ? '#FFD700' : '#FF6B6B';
+
+      // Render 0-DTE Crypto Options Condor state
+      const condor = state.crypto_options_condor;
+      if (condor) {
+        const cash = condor.cash !== undefined ? condor.cash : 170.0;
+        const dep = condor.deployed !== undefined ? condor.deployed : 30.0;
+        const csplit = document.getElementById('condor-capital-split');
+        if (csplit) csplit.textContent = `$${cash.toFixed(2)} Cash / $${dep.toFixed(2)} Deployed`;
+
+        const cpnl = document.getElementById('condor-pnl-val');
+        if (cpnl) {
+          const totPnl = condor.total_net_pnl || 0.0;
+          const pCol = totPnl >= 0 ? '#34d399' : '#f87171';
+          const pSign = totPnl > 0 ? '+' : '';
+          cpnl.innerHTML = `<span style="color:${pCol}">${pSign}$${totPnl.toFixed(2)}</span>`;
+        }
+
+        const condorList = document.getElementById('condor-positions-list');
+        if (condorList && condor.open_positions) {
+          if (condor.open_positions.length === 0) {
+            condorList.innerHTML = '<p class="text-xs text-gray-500">No active 0-DTE condor positions currently open.</p>';
+          } else {
+            condorList.innerHTML = condor.open_positions.map(p => `
+              <div class="p-2.5 rounded bg-black/70 border border-cyan-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono font-bold text-xs text-cyan-300">${p.symbol || 'BTCUSDT'}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-700 text-cyan-400 font-mono">0-DTE CONDOR</span>
+                    <span class="text-[10px] text-gray-400">${p.trade_date || ''}</span>
+                  </div>
+                  <div class="text-[11px] font-mono text-gray-300 mt-1">
+                    Put: <span class="text-amber-300">$${p.strikes?.short_put?.toLocaleString() || '-'}</span> / <span class="text-gray-400">$${p.strikes?.long_put?.toLocaleString() || '-'}</span> |
+                    Call: <span class="text-indigo-300">$${p.strikes?.short_call?.toLocaleString() || '-'}</span> / <span class="text-gray-400">$${p.strikes?.long_call?.toLocaleString() || '-'}</span>
+                  </div>
+                </div>
+                <div class="text-right sm:min-w-[140px]">
+                  <div class="text-xs font-mono font-semibold text-emerald-400">Target Credit: $${(p.net_credit_per_unit || 0).toFixed(2)}</div>
+                  <div class="text-[10px] text-gray-400 font-mono">Risk: $${(p.risk_capital || 30).toFixed(2)} | SL: $${(p.sl_credit_threshold || -8.42).toFixed(2)}</div>
+                </div>
+              </div>
+            `).join('');
+          }
+        }
+      }
 
       // Render Open Positions panel
       const openOrders = state.open_orders || [];

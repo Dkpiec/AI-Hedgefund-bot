@@ -301,7 +301,11 @@ def _success_paper(symbol: str, signal: str, ask_price: float, decision: dict) -
     new_balance = free - notional
     _save_paper_balance(new_balance)
 
-    if signal == "BUY":
+    # Compute SL/TP from the decision brackets if provided, else fallback to fixed %
+    if "sl" in decision and "tp1" in decision and decision["sl"] > 0 and decision["tp1"] > 0:
+        sl = round(float(decision["sl"]), 6)
+        tp = round(float(decision["tp1"]), 6)
+    elif signal == "BUY":
         sl = round(ask_price * (1 - SL_PERCENT), 6)
         tp = round(ask_price * (1 + TP_PERCENT), 6)
     else:
@@ -316,7 +320,10 @@ def _success_paper(symbol: str, signal: str, ask_price: float, decision: dict) -
         "qty": qty,
         "price": ask_price,
         "sl": sl,
+        "initial_sl": sl,
         "tp": tp,
+        "tp2": round(float(decision.get("tp2", tp * 1.02)), 6),
+        "tp1_hit": False,
         "placed_at": time.time(),
         "filled_at": time.time(),
         "logic": decision.get("logic", ""),
@@ -371,12 +378,34 @@ def check_paper_sl_tp() -> list:
 
         hit = None
         exit_price = None
+
+        # Adaptive Risk Gating for V2 Strategy:
         if side == "BUY":
-            # Long: SL triggered if live <= sl, TP triggered if live >= tp
-            if live <= sl:
-                hit, exit_price = "SL_HIT", sl
-            elif live >= tp:
-                hit, exit_price = "TP_HIT", tp
+            initial_sl = o.get("initial_sl", sl)
+            risk = entry - initial_sl
+            tp2 = o.get("tp2", tp * 1.02)
+            tp1_hit = o.get("tp1_hit", False)
+
+            # 1. Step-Tighten SL at +1.0R (cuts losing trade drag by 80%)
+            if risk > 0 and live >= (entry + 1.0 * risk):
+                ratchet_sl = round(entry - 0.2 * risk, 6)
+                if o["sl"] < ratchet_sl:
+                    o["sl"] = ratchet_sl
+
+            # 2. Multi-Stage Scale Out: At TP1 (+2.0R), lock in BE+0.5R and target TP2 (+4.0R)
+            if not tp1_hit and live >= tp:
+                o["tp1_hit"] = True
+                o["sl"] = round(entry + 0.5 * risk, 6) if risk > 0 else entry
+                o["tp"] = tp2
+                save_open_orders(OPEN_ORDERS)
+
+            # Check SL / TP Trigger
+            if live <= o["sl"]:
+                hit = "TP_HIT" if (o["sl"] > entry) else "SL_HIT"
+                exit_price = o["sl"]
+            elif live >= o["tp"]:
+                hit = "TP_HIT"
+                exit_price = o["tp"]
         else:  # SELL (short for paper)
             if live >= sl:
                 hit, exit_price = "SL_HIT", sl
