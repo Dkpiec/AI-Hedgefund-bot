@@ -87,7 +87,7 @@ CANDIDATE_SYMBOLS = [
     "AVAXUSDT",   # Avalanche
     "LINKUSDT",   # Chainlink
     "DOTUSDT",    # Polkadot
-    "MATICUSDT",  # Polygon
+    "POLUSDT",    # Polygon (rebranded from MATIC)
     "LTCUSDT",    # Litecoin
     "NEARUSDT",   # Near Protocol
     "ATOMUSDT",   # Cosmos
