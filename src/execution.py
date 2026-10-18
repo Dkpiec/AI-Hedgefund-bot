@@ -479,6 +479,20 @@ def cancel_expired_orders() -> list:
                 print(f"[EXEC] Cancel error for {oid}: {e}")
         cancelled.append({"order_id": oid, "symbol": o["symbol"]})
         OPEN_ORDERS.pop(oid, None)
+    # Also cancel/release stale PAPER positions older than 7 days (604,800s) to prevent frozen capital
+    stale_paper_ids = [
+        oid for oid, o in OPEN_ORDERS.items()
+        if o.get("mode") == "PAPER"
+        and (now - o.get("placed_at", 0)) > 604800
+    ]
+    for oid in stale_paper_ids:
+        o = OPEN_ORDERS[oid]
+        notional = float(o.get("notional", 0.0))
+        cur_bal = _load_paper_balance()
+        _save_paper_balance(cur_bal + notional)
+        cancelled.append({"order_id": oid, "symbol": o["symbol"], "reason": "STALE_PAPER_TIMEOUT"})
+        OPEN_ORDERS.pop(oid, None)
+
     save_open_orders(OPEN_ORDERS)
     return cancelled
 

@@ -1,0 +1,194 @@
+{
+  "strategy_id": "crypto_options_condor",
+  "name": "0-DTE Trend-Skewed Iron Condor (70% Capital Sizing)",
+  "description": "Multi-Asset 0-DTE Iron Condor on BTC/ETH options with 50 EMA trend-skewed delta wings, 65% decay TP, -0.7R SL, max 2 concurrent positions (BTC+ETH), 70% total capital utilization (35% per trade), and continuous background loop.",
+  "start_date": "2026-10-07",
+  "end_date": "2027-04-05",
+  "duration_days": 180,
+  "currency": "USD",
+  "initial_capital": 200.0,
+  "current_equity": 197.37,
+  "cash": 197.37,
+  "deployed": 0.0,
+  "max_concurrent_positions": 2,
+  "supported_symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "scan_interval_mins": 30,
+  "risk_per_trade_pct": 0.35,
+  "open_positions": [],
+  "closed_trades": [
+    {
+      "id": "CONDOR_BTC_2026-10-07_1",
+      "symbol": "BTCUSDT",
+      "entry_date": "2026-10-07",
+      "exit_date": "2026-10-08",
+      "settlement_cycle": "2026-10-08",
+      "strikes": {
+        "short_call": 85400.0,
+        "long_call": 85600.0,
+        "short_put": 81800.0,
+        "long_put": 81600.0
+      },
+      "net_credit": 2.85,
+      "gross_pnl": 1.93,
+      "fees": 0.08,
+      "net_pnl": 1.85,
+      "exit_reason": "65% Theta Decay (TP)",
+      "status": "PROFIT"
+    },
+    {
+      "id": "CONDOR_ETH_2026-10-07_2",
+      "symbol": "ETHUSDT",
+      "entry_date": "2026-10-07",
+      "exit_date": "2026-10-08",
+      "settlement_cycle": "2026-10-08",
+      "strikes": {
+        "short_call": 2580.0,
+        "long_call": 2600.0,
+        "short_put": 2420.0,
+        "long_put": 2400.0
+      },
+      "net_credit": 2.45,
+      "gross_pnl": 1.63,
+      "fees": 0.08,
+      "net_pnl": 1.55,
+      "exit_reason": "65% Theta Decay (TP)",
+      "status": "PROFIT"
+    },
+    {
+      "id": "CONDOR_BTC_2026-10-08_3",
+      "symbol": "BTCUSDT",
+      "entry_date": "2026-10-08",
+      "exit_date": "2026-10-09",
+      "settlement_cycle": "2026-10-09",
+      "strikes": {
+        "short_call": 86200.0,
+        "long_call": 86400.0,
+        "short_put": 82600.0,
+        "long_put": 82400.0
+      },
+      "net_credit": 2.25,
+      "gross_pnl": 1.53,
+      "fees": 0.08,
+      "net_pnl": 1.45,
+      "exit_reason": "65% Theta Decay (TP)",
+      "status": "PROFIT"
+    },
+    {
+      "id": "CONDOR_ETH_2026-10-09_4",
+      "symbol": "ETHUSDT",
+      "entry_date": "2026-10-09",
+      "exit_date": "2026-10-09",
+      "settlement_cycle": "2026-10-10",
+      "strikes": {
+        "short_call": 2550.0,
+        "long_call": 2570.0,
+        "short_put": 2390.0,
+        "long_put": 2370.0
+      },
+      "net_credit": 1.85,
+      "gross_pnl": -1.16,
+      "fees": 0.08,
+      "net_pnl": -1.24,
+      "exit_reason": "SL_TIGHT (-0.7R)",
+      "status": "LOSS"
+    },
+    {
+      "id": "CONDOR_BTC_2026-10-11_1",
+      "symbol": "BTCUSDT",
+      "entry_date": "2026-10-11",
+      "exit_date": "2026-10-11",
+      "settlement_cycle": "2026-10-12",
+      "strikes": {
+        "short_call": 85700.0,
+        "long_call": 85900.0,
+        "short_put": 82500.0,
+        "long_put": 82300.0
+      },
+      "net_credit": 12.4016,
+      "gross_pnl": -3.4,
+      "fees": 0.08,
+      "net_pnl": -3.49,
+      "exit_reason": "SL_TIGHT (-0.7R)",
+      "status": "LOSS"
+    },
+    {
+      "id": "CONDOR_ETH_2026-10-11_2",
+      "symbol": "ETHUSDT",
+      "entry_date": "2026-10-11",
+      "exit_date": "2026-10-11",
+      "settlement_cycle": "2026-10-12",
+      "strikes": {
+        "short_call": 2610.0,
+        "long_call": 2630.0,
+        "short_put": 2490.0,
+        "long_put": 2470.0
+      },
+      "net_credit": 0.9836,
+      "gross_pnl": -2.66,
+      "fees": 0.08,
+      "net_pnl": -2.75,
+      "exit_reason": "SL_TIGHT (-0.7R)",
+      "status": "LOSS"
+    }
+  ],
+  "equity_curve": [
+    {
+      "date": "2026-10-07",
+      "cash": 200.0,
+      "deployed": 0.0,
+      "total_equity": 200.0,
+      "net_pnl": 0.0,
+      "charges_paid": 0.0
+    },
+    {
+      "date": "2026-10-08",
+      "cash": 203.4,
+      "deployed": 0.0,
+      "total_equity": 203.4,
+      "net_pnl": 3.4,
+      "charges_paid": 0.16
+    },
+    {
+      "date": "2026-10-09",
+      "cash": 203.61,
+      "deployed": 0.0,
+      "total_equity": 203.61,
+      "net_pnl": 3.61,
+      "charges_paid": 0.32
+    },
+    {
+      "date": "2026-10-11",
+      "cash": 197.37,
+      "deployed": 0.0,
+      "total_equity": 197.37,
+      "net_pnl": -2.63,
+      "charges_paid": 0.48
+    },
+    {
+      "date": "2026-10-12",
+      "cash": 197.37,
+      "deployed": 0.0,
+      "total_equity": 197.37,
+      "net_pnl": -2.63,
+      "charges_paid": 0.48
+    }
+  ],
+  "win_rate_pct": 50.0,
+  "profit_factor": 0.65,
+  "total_gross_pnl": -2.15,
+  "total_charges_paid": 0.48,
+  "total_net_pnl": -2.63,
+  "rules": {
+    "session_entry_utc": "00:00 UTC",
+    "session_exit_utc": "07:30 UTC",
+    "iv_filter": "35% <= IV <= 85%",
+    "trend_skew": "50 EMA on 1H (2.0\u03c3/1.6\u03c3 delta wings)",
+    "take_profit": "65% Net Credit Decay",
+    "stop_loss": "-0.70x Net Credit Loss",
+    "position_sizing": "35% per trade risk compounding (Max 2 concurrent positions)",
+    "fee_model": "Binance Options 0.02% Maker / 0.03% Taker"
+  }
+}

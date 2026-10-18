@@ -1,0 +1,12 @@
+{
+  "strategy": "Institutional 2.5-Sigma Volatility Reversion Engine",
+  "period": "2021-2026 (5 Years)",
+  "total_trades": 13862,
+  "win_rate": 29.22,
+  "profit_factor": 0.75,
+  "starting_capital": 200.0,
+  "ending_capital": 0.0,
+  "net_profit": -200.0,
+  "cagr": -100.0,
+  "max_drawdown_pct": 100.0
+}

@@ -445,9 +445,10 @@
           }
           const isLatest = idx === 0;
           const signalColor = t.signal === 'BUY' ? '#75E063' : '#FF6B6B';
-          const outcomeBg = t.outcome === 'TP_HIT' ? '#75E063' : t.outcome === 'SL_HIT' ? '#FF6B6B' : '#444';
-          const outcomeFg = (t.outcome === 'TP_HIT' || t.outcome === 'SL_HIT') ? '#000' : '#888';
-          const outcomeText = t.outcome === 'TP_HIT' ? 'TP' : t.outcome === 'SL_HIT' ? 'SL' : '—';
+          const effOutcome = t.outcome || t.status || '';
+          const outcomeBg = (effOutcome === 'TP_HIT' || effOutcome === 'TP1' || effOutcome === 'TP2') ? '#75E063' : (effOutcome === 'SL_HIT' || effOutcome === 'BE_SL_HIT') ? '#FF6B6B' : '#444';
+          const outcomeFg = (effOutcome === 'TP_HIT' || effOutcome === 'TP1' || effOutcome === 'TP2' || effOutcome === 'SL_HIT' || effOutcome === 'BE_SL_HIT') ? '#000' : '#888';
+          const outcomeText = (effOutcome === 'TP_HIT' || effOutcome === 'TP1' || effOutcome === 'TP2') ? 'TP' : (effOutcome === 'SL_HIT' || effOutcome === 'BE_SL_HIT') ? 'SL' : '—';
           // Full inline styles - nothing can be hidden
           const dotStyle = 'display:inline-block;width:12px;height:12px;border-radius:50%;background:' + assetColor + ';margin-right:8px;vertical-align:middle;' + dotAnim;
           const sigDotStyle = 'display:inline-block;width:6px;height:6px;border-radius:50%;background:' + signalColor + ';margin-right:6px;vertical-align:middle;box-shadow:0 0 6px ' + signalColor + ';';
@@ -473,7 +474,7 @@
               Price: ${(t.price || 0).toFixed(5)} | SL: ${(t.sl || 0).toFixed(5)} | TP: ${(t.tp || 0).toFixed(5)} | ${t.mode || 'LIVE'} | Conf: ${t.confidence || 0}%
             </div>
             <div style="color:${tColor};font-weight:bold;margin-top:4px;">
-              ${t.outcome || ''} | P&L: ${tSign}$${tPnl.toFixed(2)} | Balance: $${(t.balance_after || 0).toFixed(2)}
+              ${effOutcome ? '[' + effOutcome + '] ' : ''}P&L: ${tSign}$${tPnl.toFixed(2)} | Balance: $${(t.balance_after || 0).toFixed(2)}
             </div>
           </div>
         `}).join('');

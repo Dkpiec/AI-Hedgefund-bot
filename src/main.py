@@ -374,13 +374,29 @@ async def status():
             except Exception as condor_err:
                 print(f"[STATUS] Condor load error: {condor_err}")
 
-            bot_state["free"] = round(bal, 2)
-            bot_state["balance"] = round(bal + open_notional, 2)
-            bot_state["equity"] = round(bal + open_notional + unrealized, 2)
+            # Deterministic Hedge Fund Accounting: Cash + Deployed = Starting Capital ($200) + Realized PnL
+            starting_bal = float(bot_state.get("starting_balance", 200.0) or 200.0)
+            realized_pnl = sum(
+                float(t.get("pnl", 0.0))
+                for t in bot_state.get("trade_history", [])
+                if t.get("status") in ("TP_HIT", "SL_HIT", "TP1", "TP2", "BE_SL_HIT")
+                or t.get("outcome") in ("TP_HIT", "SL_HIT", "TP1", "TP2", "BE_SL_HIT")
+            )
+            total_realized_cap = round(starting_bal + realized_pnl, 2)
+            free_cash = round(max(0.0, total_realized_cap - open_notional), 2)
 
-        starting_bal = float(bot_state.get("starting_balance", 200.0) or 200.0)
-        bot_state["pnl"] = round(bot_state["equity"] - starting_bal, 2)
-        bot_state["pnl_pct"] = round((bot_state["pnl"] / starting_bal * 100), 2) if starting_bal else 0.0
+            bot_state["free"] = free_cash
+            bot_state["balance"] = total_realized_cap
+            bot_state["equity"] = round(total_realized_cap + unrealized, 2)
+            bot_state["pnl"] = round(bot_state["equity"] - starting_bal, 2)
+            bot_state["pnl_pct"] = round((bot_state["pnl"] / starting_bal * 100), 2) if starting_bal else 0.0
+
+            # Keep paper balance file and state synced with deterministic accounting
+            try:
+                from execution import _save_paper_balance
+                _save_paper_balance(free_cash)
+            except Exception:
+                pass
     except Exception:
         pass
     bot_state["open_orders"] = get_open_orders()
@@ -573,6 +589,7 @@ async def trading_loop():
                     "order_id": c["order_id"],
                     "mode": c.get("mode", "PAPER"),
                     "status": c["outcome"],   # TP_HIT or SL_HIT
+                    "outcome": c["outcome"],  # explicit outcome for frontend badge rendering
                     "pnl": c["pnl"],
                     "balance_after": c["balance_after"],
                     "notional": c.get("notional", 0),
@@ -583,7 +600,6 @@ async def trading_loop():
                     f"CLOSED {c['side']} {c['symbol']} @ {c['exit']:.4f} "
                     f"({c['outcome']}) PnL=${c['pnl']:+.2f}"
                 )
-            bot_state["trade_history"] = bot_state["trade_history"][-200:]
         except Exception as e:
             print(f"[BOT] check_paper_sl_tp error: {e}")
 
@@ -624,7 +640,9 @@ async def trading_loop():
                     f"IB-15 CLOSED {c['side']} {c['symbol']} @ {c['exit']:.4f} "
                     f"({c['outcome']}) PnL=${c['pnl']:+.2f}"
                 )
-            bot_state["trade_history"] = bot_state["trade_history"][-200:]
+            # Trade history never capped per user standing mandate
+            # bot_state["trade_history"] is kept uncapped
+            pass
         except Exception as e:
             print(f"[BOT] update_ib15_positions_loop error: {e}")
 
